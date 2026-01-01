@@ -1,76 +1,103 @@
 # AI Writing Editor
 
-Ứng dụng AI Writing Editor giúp người dùng luyện tập dịch và viết tiếng Anh với sự hỗ trợ của Google Gemini AI.
+A Next.js application for practicing English writing with AI-powered feedback using Google Gemini API.
 
-## Tính năng
+## Features
 
-- ✨ Focus Mode: Tự động làm mờ các phần không đang chỉnh sửa
-- ✅ Tick xanh: Đánh dấu hoàn thành khi viết đủ nội dung
-- 👻 Ghost Panel: Sidebar tự động làm mờ khi đang tập trung viết
-- 🤖 AI Analysis: Phân tích và chấm điểm bài viết bằng Gemini AI
-- 🔄 Auto-save: Tự động lưu vào session storage
-- 🔑 API Key Fallback: Tự động chuyển đổi API key nếu một key không hoạt động
+- 📝 **Essay Writing Practice**: Write essays based on Vietnamese source text
+- 🤖 **AI-Powered Feedback**: Get real-time analysis and suggestions after each sentence
+- 📚 **Multiple Certificates**: Support for IELTS, TOEIC, TOEFL, Cambridge, PTE
+- 💾 **Essay Management**: Save and manage multiple essays with session storage
+- 🎯 **Target Band Selection**: Choose your target band/score for personalized topics
+- 🔄 **Auto-Save**: Automatically save your work as you type
 
-## Cấu trúc dự án
+## Tech Stack
 
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **AI**: Google Gemini API (@google/genai)
+- **Icons**: Material Symbols
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+ 
+- npm or yarn
+- Google Gemini API keys
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone git@github.com:CuongBC195/elearning.git
+cd elearning
 ```
-my-ai-writing-app/
-├── app/
-│   ├── api/
-│   │   └── analyze/
-│   │       └── route.ts      # Logic xử lý AI (Gemini API)
-│   ├── globals.css           # Tailwind CSS & Custom styles
-│   ├── layout.tsx            # Font Inter & Material Symbols
-│   └── page.tsx              # Giao diện chính
-├── components/
-│   └── EssayEditor.tsx       # Component logic xử lý chính
-├── constants/
-│   └── prompts.ts            # Nơi lưu trữ toàn bộ Prompt Engineering
-├── types/
-│   └── index.ts              # Định nghĩa dữ liệu bài viết
-├── .env.local                # API Keys (KHÔNG commit lên git)
-└── .gitignore               # Bảo vệ .env.local
-```
 
-## Cài đặt
-
-1. Cài đặt dependencies:
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-2. Tạo file `.env.local` (đã có sẵn trong project):
+3. Create `.env.local` file:
 ```env
-GEMINI_API_KEY_1=your_api_key_1_here
-GEMINI_API_KEY_2=your_api_key_2_here
-GEMINI_API_KEY_3=your_api_key_3_here
+GEMINI_API_KEY_1=your_api_key_1
+GEMINI_API_KEY_2=your_api_key_2
+GEMINI_API_KEY_3=your_api_key_3
+GEMINI_API_KEY_4=your_api_key_4
 ```
 
-3. Chạy development server:
+4. Run the development server:
 ```bash
 npm run dev
 ```
 
-4. Mở [http://localhost:3000](http://localhost:3000) trong trình duyệt.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Bảo mật API Keys
+## Project Structure
 
-- ✅ File `.env.local` đã được thêm vào `.gitignore`
-- ✅ Không commit API keys lên GitHub
-- ✅ Sử dụng environment variables
-- ✅ Hỗ trợ 3 API keys với cơ chế fallback tự động
+```
+elearning/
+├── app/
+│   ├── api/
+│   │   ├── analyze/          # API route for essay analysis
+│   │   └── generate-topic/   # API route for topic generation
+│   ├── layout.tsx            # Root layout
+│   └── page.tsx              # Main page (essay list/editor)
+├── components/
+│   ├── EssayEditor.tsx       # Main essay editor component
+│   ├── EssayList.tsx         # Essay list component
+│   └── NewEssayModal.tsx     # Modal for creating new essay
+├── constants/
+│   ├── certificates.ts       # Certificate configurations
+│   └── prompts.ts            # AI prompts for Gemini
+├── types/
+│   └── index.ts              # TypeScript type definitions
+└── ...
+```
 
-## Công nghệ sử dụng
+## Usage
 
-- **Next.js 14** - React framework
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **Google Gemini AI** - AI analysis
-- **Material Symbols** - Icons
+1. **Create New Essay**: Click "New Essay" button, select certificate and target band
+2. **Write Essay**: Translate Vietnamese source text to English
+3. **Get Feedback**: AI automatically analyzes after each completed sentence
+4. **Save & Manage**: Essays are auto-saved and can be accessed from the list
+5. **Quit**: Click "Quit" to return to essay list
 
-## Lưu ý
+## API Keys Setup
 
-- Đảm bảo bạn có API keys hợp lệ từ Google AI Studio
-- API route sẽ tự động thử các API keys theo thứ tự nếu một key không hoạt động
-- Dữ liệu được lưu vào session storage (sẽ mất khi đóng tab)
+The application uses multiple Gemini API keys for fallback support:
+- Free tier: 20 requests/day per key
+- With 4 keys: Up to 80 requests/day total
+- Keys are tried in order until one succeeds
 
+Get your API keys from [Google AI Studio](https://makersuite.google.com/app/apikey)
+
+## Deployment
+
+See [VERCEL_SETUP.md](./VERCEL_SETUP.md) for detailed Vercel deployment instructions.
+
+## License
+
+MIT
