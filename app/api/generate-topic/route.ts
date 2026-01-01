@@ -149,6 +149,13 @@ export async function POST(req: Request) {
     }
 
     // Xử lý response từ Gemini
+    if (!result.response) {
+      return NextResponse.json(
+        { error: "No response from API" },
+        { status: 500 }
+      );
+    }
+
     let cleanJson = result.response.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     
     try {

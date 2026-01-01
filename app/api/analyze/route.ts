@@ -145,6 +145,13 @@ export async function POST(req: Request) {
     }
 
     // Xử lý response từ Gemini - extract JSON
+    if (!result.response) {
+      return NextResponse.json(
+        { error: "No response from API" },
+        { status: 500 }
+      );
+    }
+
     let cleanJson = result.response.trim();
     
     // Loại bỏ markdown code blocks nếu có
