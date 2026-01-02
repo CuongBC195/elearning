@@ -4,8 +4,8 @@ import { CERTIFICATES, getCertificateById } from "@/constants/certificates";
 import { NextResponse } from "next/server";
 import { GeneratedTopic } from "@/types";
 
-// Sử dụng gemini-1.5-flash (1,500 requests/ngày ở bản miễn phí)
-const MODEL_NAME = "gemini-1.5-flash";
+// Sử dụng gemini-1.5-flash-latest (1,500 requests/ngày ở bản miễn phí)
+const MODEL_NAME = "gemini-1.5-flash-latest";
 
 // Hàm thử API key với gemini-1.5-flash
 async function tryApiKey(apiKey: string, prompt: string) {
