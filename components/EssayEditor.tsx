@@ -144,9 +144,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
     }
   }, [currentText, currentEssayId, essayData, certificateId, band, target]);
 
-  // Auto-analyze sau mỗi câu (sau dấu chấm)
+  // Auto-analyze sau mỗi câu (sau dấu chấm) - với debounce để tránh gọi quá nhiều
   useEffect(() => {
-    if (!currentText || !essayData) return;
+    if (!currentText || !essayData || isAnalyzing) return;
 
     // Tìm tất cả các câu đã hoàn thành (kết thúc bằng . ! ?)
     const sentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
@@ -156,13 +156,22 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       const lastSentence = sentences[sentences.length - 1];
       const newLength = currentText.length;
       
-      // Chỉ analyze nếu có thay đổi đáng kể (tránh analyze quá nhiều)
+      // Chỉ analyze nếu có thay đổi đáng kể và đã đợi một chút (debounce)
       if (newLength > lastAnalyzedLength.current + 10) {
-        analyzeCurrentText(lastSentence.trim());
-        lastAnalyzedLength.current = newLength;
+        // Debounce: đợi 1.5 giây sau khi user ngừng gõ
+        const timeoutId = setTimeout(() => {
+          // Kiểm tra lại xem có còn là câu mới nhất không
+          const currentSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
+          if (currentSentences.length === sentences.length) {
+            analyzeCurrentText(lastSentence.trim());
+            lastAnalyzedLength.current = newLength;
+          }
+        }, 1500); // Debounce 1.5 giây
+
+        return () => clearTimeout(timeoutId);
       }
     }
-  }, [currentText, essayData, currentSentenceIndex]);
+  }, [currentText, essayData, currentSentenceIndex, isAnalyzing]);
 
   const analyzeCurrentText = async (textToAnalyze: string) => {
     if (!textToAnalyze || !essayData || isAnalyzing) return;
@@ -393,7 +402,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
               <div className="relative w-8 h-8 flex items-center justify-center rounded-full border-2 border-green-500 text-green-500 mb-1">
                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
               </div>
-              <span className="text-sm font-bold text-gray-200">{accuracy.toFixed(2)}%</span>
+              <span className="text-sm font-bold text-gray-200">{accuracy.toFixed(0)}%</span>
               <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Accuracy</span>
             </div>
           </div>
@@ -417,7 +426,15 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
 
           {/* Feedback Section */}
           <div>
-            <h3 className="text-lg font-bold text-gray-200 mb-4">Feedback</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-200">Feedback</h3>
+              {isAnalyzing && (
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                  <span>Analyzing...</span>
+                </div>
+              )}
+            </div>
             {feedback ? (
               <div className="bg-[#131823] rounded-lg p-5 border border-gray-800 space-y-5">
                 {feedback.suggestions && feedback.suggestions.length > 0 && (
@@ -450,7 +467,14 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
             ) : (
               <div className="bg-[#131823] rounded-lg p-5 border border-gray-800">
                 <p className="text-gray-500 text-sm text-center">
-                  {isAnalyzing ? "Đang phân tích..." : "Viết để nhận feedback tự động"}
+                  {isAnalyzing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                      Đang phân tích...
+                    </span>
+                  ) : (
+                    "Viết để nhận feedback tự động"
+                  )}
                 </p>
               </div>
             )}

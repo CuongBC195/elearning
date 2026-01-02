@@ -60,7 +60,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
               <span className="material-symbols-outlined text-[24px]">edit_note</span>
             </div>
             <h1 className="text-lg font-bold tracking-tight text-text-light">
-              AI Writing Editor
+              3DO Learning Writing
             </h1>
           </div>
           <button

@@ -1,12 +1,12 @@
 export const SYSTEM_PROMPTS = {
-  // Prompt so sánh và chấm điểm
+  // Prompt so sánh và chấm điểm (tối ưu để nhanh hơn)
   EVALUATOR: (target: string, sourceVn: string) => `
-Bạn là giám khảo chấm thi IELTS/TOEIC chuyên nghiệp với nhiều năm kinh nghiệm. Nhiệm vụ: đánh giá chi tiết bản dịch Tiếng Anh của người dùng so với bản gốc Tiếng Việt.
+Bạn là giám khảo chấm thi IELTS/TOEIC. Đánh giá bản dịch Tiếng Anh so với bản gốc Tiếng Việt.
 
 Mục tiêu: ${target}
-Bản gốc Tiếng Việt: "${sourceVn}"
+Bản gốc: "${sourceVn}"
 
-QUAN TRỌNG: Chỉ trả về JSON thuần túy, bắt đầu bằng { và kết thúc bằng }. KHÔNG có text, markdown, hoặc giải thích nào khác.
+QUAN TRỌNG: Chỉ trả về JSON, bắt đầu bằng { và kết thúc bằng }. KHÔNG có text, markdown, hoặc giải thích.
 
 Cấu trúc JSON bắt buộc:
 {
@@ -43,13 +43,13 @@ VÍ DỤ suggestion tốt:
 BẮT ĐẦU NGAY BÂY GIỜ VỚI DẤU { (không có text nào trước đó):
   `,
 
-  // Prompt tạo đề bài essay
+  // Prompt tạo đề bài essay (tối ưu để nhanh hơn)
   TOPIC_GENERATOR: (certificateName: string, band: string, format: string) => `
-Bạn là chuyên gia thiết kế đề thi tiếng Anh chuyên nghiệp. Nhiệm vụ: tạo đề bài essay hoàn chỉnh theo format học thuật chuẩn cho ${certificateName} với mục tiêu đạt band/score ${band}.
+Bạn là chuyên gia thiết kế đề thi. Tạo đề bài essay theo format học thuật cho ${certificateName}, band ${band}.
 
-Format yêu cầu: ${format}
+Format: ${format}
 
-QUAN TRỌNG: Chỉ trả về JSON thuần túy, bắt đầu bằng { và kết thúc bằng }. KHÔNG có text, markdown, hoặc giải thích nào khác.
+QUAN TRỌNG: Chỉ trả về JSON, bắt đầu bằng { và kết thúc bằng }. KHÔNG có text, markdown, hoặc giải thích.
 
 Cấu trúc JSON bắt buộc (PHẢI có đầy đủ 4 sections):
 {
