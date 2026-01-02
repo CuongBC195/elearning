@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay } from '@/types';
+import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary } from '@/types';
 
 interface EssayEditorProps {
   certificateId: string;
@@ -22,11 +22,14 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   const [showHint, setShowHint] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false); // Mobile sidebar toggle
   const [currentEssayId, setCurrentEssayId] = useState<string | undefined>(essayId);
+  const [notes, setNotes] = useState("");
+  const [summary, setSummary] = useState<EssaySummary | null>(null);
+  const [allFeedbacks, setAllFeedbacks] = useState<AnalysisResult[]>([]); // Lưu tất cả feedback để tổng kết
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedLength = useRef(0);
 
   // Save essay to localStorage (persistent storage - lưu lâu dài)
-  const saveEssayToStorage = (id: string, data: EssayData, content: string) => {
+  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary) => {
     const savedEssays = localStorage.getItem('saved_essays');
     let essays: SavedEssay[] = savedEssays ? JSON.parse(savedEssays) : [];
     
@@ -40,7 +43,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       createdAt: essayIndex >= 0 ? essays[essayIndex].createdAt : Date.now(),
       updatedAt: Date.now(),
       content,
-      essayData: data
+      essayData: data,
+      notes: notesToSave !== undefined ? notesToSave : (essayIndex >= 0 ? essays[essayIndex].notes : ""),
+      summary: summaryToSave !== undefined ? summaryToSave : (essayIndex >= 0 ? essays[essayIndex].summary : undefined)
     };
 
     if (essayIndex >= 0) {
@@ -66,9 +71,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
             setEssayData(essay.essayData);
             setCurrentText(essay.content);
             setCurrentEssayId(essay.id);
+            setNotes(essay.notes || "");
+            setSummary(essay.summary || null);
             setFeedback(null);
             setAccuracy(0);
             setCurrentSentenceIndex(0);
+            setAllFeedbacks([]);
             lastAnalyzedLength.current = 0;
             setIsLoadingTopic(false);
             return; // Đã load xong, không cần làm gì thêm
@@ -138,12 +146,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   useEffect(() => {
     if (currentEssayId && essayData && currentText.length >= 0) {
       const timeoutId = setTimeout(() => {
-        saveEssayToStorage(currentEssayId, essayData, currentText);
+        saveEssayToStorage(currentEssayId, essayData, currentText, notes, summary || undefined);
       }, 1000); // Debounce 1 second
 
       return () => clearTimeout(timeoutId);
     }
-  }, [currentText, currentEssayId, essayData, certificateId, band, target]);
+  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary]);
 
   // Auto-analyze sau mỗi câu (sau dấu chấm) - với debounce để tránh gọi quá nhiều
   useEffect(() => {
@@ -204,6 +212,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         setFeedback(data);
         setAccuracy(data.accuracy || 0);
         setCurrentSentenceIndex(sentences.length);
+        // Lưu feedback vào danh sách để tổng kết sau
+        setAllFeedbacks(prev => [...prev, data]);
       } else {
         const errorData = await res.json();
         // Handle quota error silently for auto-analysis
@@ -261,11 +271,80 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       const data = await res.json();
       setFeedback(data);
       setAccuracy(data.accuracy || 0);
+      
+      // Lưu feedback cuối cùng vào danh sách
+      setAllFeedbacks(prev => [...prev, data]);
+      
+      // Tạo summary từ tất cả feedback
+      const newSummary = createSummary([...allFeedbacks, data], data.accuracy);
+      setSummary(newSummary);
+      
+      // Lưu summary vào storage
+      if (currentEssayId && essayData) {
+        saveEssayToStorage(currentEssayId, essayData, currentText, notes, newSummary);
+      }
     } catch (error: any) {
       console.error("Analysis error:", error);
       alert(`Failed to analyze: ${error.message}`);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  // Tính toán progress dựa trên số câu đã viết
+  const calculateProgress = (): number => {
+    if (!essayData) return 0;
+    const totalVnSentences = essayData.sections.reduce((acc, section) => {
+      const sentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
+      return acc + sentences.length;
+    }, 0);
+    
+    const userSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
+    const progress = Math.min(100, Math.round((userSentences.length / totalVnSentences) * 100));
+    return progress;
+  };
+
+  // Tạo summary từ tất cả feedback
+  const createSummary = (feedbacks: AnalysisResult[], finalAccuracy: number): EssaySummary => {
+    const grammarErrors: string[] = [];
+    const vocabularyIssues: string[] = [];
+    let totalErrors = 0;
+
+    feedbacks.forEach(fb => {
+      if (fb.suggestions) {
+        fb.suggestions.forEach(s => {
+          totalErrors++;
+          // Phân loại lỗi dựa trên reason
+          const reason = s.reason?.toLowerCase() || "";
+          if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ")) {
+            if (!grammarErrors.includes(s.error)) {
+              grammarErrors.push(s.error);
+            }
+          } else if (reason.includes("từ vựng") || reason.includes("vocabulary") || reason.includes("từ")) {
+            if (!vocabularyIssues.includes(s.error)) {
+              vocabularyIssues.push(s.error);
+            }
+          }
+        });
+      }
+    });
+
+    return {
+      grammarErrors: grammarErrors.length,
+      vocabularyErrors: vocabularyIssues.length,
+      totalErrors,
+      commonGrammarMistakes: grammarErrors.slice(0, 5), // Top 5 lỗi ngữ pháp
+      commonVocabularyIssues: vocabularyIssues.slice(0, 5), // Top 5 lỗi từ vựng
+      accuracy: finalAccuracy,
+      completedAt: Date.now()
+    };
+  };
+
+  // Lưu notes khi thay đổi
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+    if (currentEssayId && essayData) {
+      saveEssayToStorage(currentEssayId, essayData, currentText, value, summary || undefined);
     }
   };
 
@@ -486,12 +565,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
-          {/* Dictionary & Accuracy */}
+          {/* Summary & Accuracy */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 sm:gap-2 border border-gray-800 cursor-pointer hover:bg-[#232d3f] transition-colors group">
-              <span className="material-symbols-outlined text-[20px] sm:text-[24px] text-gray-400 group-hover:text-white">menu_book</span>
-              <span className="text-xs sm:text-sm font-medium text-gray-300">Dictionary</span>
-            </div>
             <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
               <div className="relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border-2 border-green-500 text-green-500 mb-1">
                 <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-green-500 rounded-full"></div>
@@ -499,6 +574,75 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
               <span className="text-xs sm:text-sm font-bold text-gray-200">{accuracy.toFixed(0)}%</span>
               <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Accuracy</span>
             </div>
+            <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
+              <span className="material-symbols-outlined text-[20px] sm:text-[24px] text-primary">check_circle</span>
+              <span className="text-xs sm:text-sm font-bold text-gray-200">{summary?.totalErrors || 0}</span>
+              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Total Errors</span>
+            </div>
+          </div>
+
+          {/* Summary Section - Hiển thị khi đã submit */}
+          {summary && summary.completedAt && (
+            <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800">
+              <h3 className="text-base sm:text-lg font-bold text-gray-200 mb-3 sm:mb-4">Tổng kết bài viết</h3>
+              <div className="space-y-3 sm:space-y-4">
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
+                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi ngữ pháp</p>
+                    <p className="text-base sm:text-lg font-bold text-red-400">{summary.grammarErrors}</p>
+                  </div>
+                  <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
+                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi từ vựng</p>
+                    <p className="text-base sm:text-lg font-bold text-orange-400">{summary.vocabularyErrors}</p>
+                  </div>
+                </div>
+                
+                {summary.commonGrammarMistakes.length > 0 && (
+                  <div>
+                    <p className="text-xs sm:text-sm text-gray-400 mb-2 font-medium">Lỗi ngữ pháp thường gặp:</p>
+                    <ul className="space-y-1.5">
+                      {summary.commonGrammarMistakes.map((mistake, i) => (
+                        <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2">
+                          <span className="w-1 h-1 rounded-full bg-red-400 mt-1.5 flex-none"></span>
+                          <span className="line-through">{mistake}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {summary.commonVocabularyIssues.length > 0 && (
+                  <div>
+                    <p className="text-xs sm:text-sm text-gray-400 mb-2 font-medium">Lỗi từ vựng thường gặp:</p>
+                    <ul className="space-y-1.5">
+                      {summary.commonVocabularyIssues.map((issue, i) => (
+                        <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2">
+                          <span className="w-1 h-1 rounded-full bg-orange-400 mt-1.5 flex-none"></span>
+                          <span className="line-through">{issue}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Notes Section - Thay thế Dictionary */}
+          <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800">
+            <div className="flex items-center justify-between mb-2 sm:mb-3">
+              <h3 className="text-base sm:text-lg font-bold text-gray-200 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] sm:text-[20px]">note</span>
+                Ghi chú cá nhân
+              </h3>
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              placeholder="Ghi chú những điểm cần nhớ, lỗi sai thường gặp, từ vựng mới..."
+              className="w-full h-32 sm:h-40 bg-[#1a212e] border border-gray-700 rounded p-3 text-xs sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary resize-none custom-scrollbar"
+            />
+            <p className="text-[10px] sm:text-xs text-gray-500 mt-2">Ghi chú sẽ được lưu tự động</p>
           </div>
 
           {/* Hint Section */}

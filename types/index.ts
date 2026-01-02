@@ -36,6 +36,16 @@ export interface GeneratedTopic {
   instructions?: string;
 }
 
+export interface EssaySummary {
+  grammarErrors: number;
+  vocabularyErrors: number;
+  totalErrors: number;
+  commonGrammarMistakes: string[];
+  commonVocabularyIssues: string[];
+  accuracy: number;
+  completedAt: number;
+}
+
 export interface SavedEssay {
   id: string;
   title: string;
@@ -46,5 +56,7 @@ export interface SavedEssay {
   updatedAt: number;
   content: string; // User's English translation
   essayData: EssayData; // Original Vietnamese sections
+  notes?: string; // User's personal notes
+  summary?: EssaySummary; // Summary of errors and completion
 }
 
