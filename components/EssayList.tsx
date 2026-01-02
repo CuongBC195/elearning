@@ -56,8 +56,12 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
       <header className="flex-none px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-800 bg-background-dark">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-            <div className="size-7 sm:size-8 text-primary flex items-center justify-center bg-primary/10 rounded flex-shrink-0">
-              <span className="material-symbols-outlined text-[20px] sm:text-[24px]">edit_note</span>
+            <div className="size-8 sm:size-10 flex items-center justify-center flex-shrink-0">
+              <img 
+                src="/logo.png" 
+                alt="3DO Learning Logo" 
+                className="w-full h-full object-contain"
+              />
             </div>
             <h1 className="text-base sm:text-lg font-bold tracking-tight text-text-light truncate">
               3DO Learning Writing
