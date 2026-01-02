@@ -51,30 +51,43 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
     sessionStorage.setItem('saved_essays', JSON.stringify(essays));
   };
 
-  // Load essay từ session storage nếu có essayId
+  // Load essay từ session storage nếu có essayId (tiếp tục bài cũ)
   useEffect(() => {
     if (essayId) {
+      setIsLoadingTopic(true);
       const savedEssays = sessionStorage.getItem('saved_essays');
       if (savedEssays) {
         try {
           const essays: SavedEssay[] = JSON.parse(savedEssays);
           const essay = essays.find(e => e.id === essayId);
           if (essay) {
+            // Load bài cũ: set essayData và content đã viết
             setEssayData(essay.essayData);
             setCurrentText(essay.content);
             setCurrentEssayId(essay.id);
-            return; // Don't load new topic if loading existing essay
+            setFeedback(null);
+            setAccuracy(0);
+            setCurrentSentenceIndex(0);
+            lastAnalyzedLength.current = 0;
+            setIsLoadingTopic(false);
+            return; // Đã load xong, không cần làm gì thêm
           }
         } catch (e) {
           console.error("Error loading essay:", e);
         }
       }
+      // Nếu không tìm thấy essay, fallback về tạo mới
+      setIsLoadingTopic(false);
     }
   }, [essayId]);
 
-  // Load topic từ API khi certificateId hoặc band thay đổi (và không có essayId)
+  // Load topic từ API CHỈ KHI TẠO BÀI MỚI (không có essayId)
   useEffect(() => {
-    if (essayId && essayData) return; // Don't reload if we already have essay data
+    // Chỉ load topic mới khi KHÔNG có essayId (tức là tạo bài mới)
+    if (essayId) return; // Nếu có essayId, đã load ở useEffect trên, không cần tạo mới
+    
+    // Nếu đã có essayData rồi, không load lại
+    if (essayData) return;
 
     const loadTopic = async () => {
       setIsLoadingTopic(true);
@@ -99,15 +112,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         };
         setEssayData(newEssayData);
 
-        // Create new essay entry if not loading existing
-        if (!essayId) {
-          const newEssayId = `essay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          setCurrentEssayId(newEssayId);
-          saveEssayToStorage(newEssayId, newEssayData, "");
-        } else {
-          setCurrentText("");
-        }
+        // Tạo bài mới: tạo essayId mới và lưu vào storage
+        const newEssayId = `essay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        setCurrentEssayId(newEssayId);
+        saveEssayToStorage(newEssayId, newEssayData, "");
 
+        setCurrentText("");
         setFeedback(null);
         setAccuracy(0);
         setCurrentSentenceIndex(0);

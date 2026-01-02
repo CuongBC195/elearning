@@ -8,9 +8,6 @@ import { GeneratedTopic } from "@/types";
 // gemini-2.5-flash là model mới nhất (1,500 requests/ngày ở bản miễn phí)
 const MODEL_NAMES = [
   "gemini-2.5-flash",      // Model mới nhất (recommended)
-  "gemini-1.5-flash",      // Fallback
-  "gemini-pro",            // Fallback
-  "gemini-1.5-pro",        // Fallback
 ];
 
 // Hàm thử API key với gemini-1.5-flash
