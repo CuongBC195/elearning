@@ -83,6 +83,8 @@ export function getCertificateDisplayName(certificateId: string, band: string): 
     return `${cert.name} (${band})`;
   } else if (cert.id.includes("pte")) {
     return `${cert.name} ${band}`;
+  } else if (cert.id.includes("vstep")) {
+    return `${cert.name} Level ${band}`;
   }
   
   return `${cert.name} ${band}`;
