@@ -24,9 +24,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedLength = useRef(0);
 
-  // Save essay to session storage
+  // Save essay to localStorage (persistent storage - lưu lâu dài)
   const saveEssayToStorage = (id: string, data: EssayData, content: string) => {
-    const savedEssays = sessionStorage.getItem('saved_essays');
+    const savedEssays = localStorage.getItem('saved_essays');
     let essays: SavedEssay[] = savedEssays ? JSON.parse(savedEssays) : [];
     
     const essayIndex = essays.findIndex(e => e.id === id);
@@ -48,14 +48,14 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       essays.push(essayData);
     }
 
-    sessionStorage.setItem('saved_essays', JSON.stringify(essays));
+    localStorage.setItem('saved_essays', JSON.stringify(essays));
   };
 
-  // Load essay từ session storage nếu có essayId (tiếp tục bài cũ)
+  // Load essay từ localStorage nếu có essayId (tiếp tục bài cũ)
   useEffect(() => {
     if (essayId) {
       setIsLoadingTopic(true);
-      const savedEssays = sessionStorage.getItem('saved_essays');
+      const savedEssays = localStorage.getItem('saved_essays');
       if (savedEssays) {
         try {
           const essays: SavedEssay[] = JSON.parse(savedEssays);

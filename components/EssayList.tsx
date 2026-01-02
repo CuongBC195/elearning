@@ -13,8 +13,8 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
   const [essays, setEssays] = useState<SavedEssay[]>([]);
 
   useEffect(() => {
-    // Load essays from session storage
-    const savedEssays = sessionStorage.getItem('saved_essays');
+    // Load essays from localStorage (persistent storage)
+    const savedEssays = localStorage.getItem('saved_essays');
     if (savedEssays) {
       try {
         const parsed = JSON.parse(savedEssays);
@@ -47,7 +47,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
     e.stopPropagation();
     const updated = essays.filter(e => e.id !== id);
     setEssays(updated);
-    sessionStorage.setItem('saved_essays', JSON.stringify(updated));
+    localStorage.setItem('saved_essays', JSON.stringify(updated));
   };
 
   return (
