@@ -4,15 +4,10 @@ import { CERTIFICATES, getCertificateById } from "@/constants/certificates";
 import { NextResponse } from "next/server";
 import { GeneratedTopic } from "@/types";
 
-// Danh sách model names để thử (theo thứ tự ưu tiên)
-const MODEL_NAMES = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash-exp",
-  "gemini-1.5-pro",
-  "gemini-1.5-flash",
-];
+// Sử dụng gemini-1.5-flash (1,500 requests/ngày ở bản miễn phí)
+const MODEL_NAME = "gemini-1.5-flash";
 
-// Hàm thử API key với nhiều model names
+// Hàm thử API key với gemini-1.5-flash
 async function tryApiKey(apiKey: string, prompt: string) {
   const originalApiKey = process.env.GEMINI_API_KEY;
   process.env.GEMINI_API_KEY = apiKey;
@@ -20,44 +15,34 @@ async function tryApiKey(apiKey: string, prompt: string) {
   try {
     const ai = new GoogleGenAI({});
     
-    for (const modelName of MODEL_NAMES) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-        });
-        const text = response.text;
-        console.log(`✓ Successfully used model: ${modelName} for topic generation`);
-        return { success: true, response: text };
-      } catch (error: any) {
-        if (error?.message?.includes("404") || error?.message?.includes("not found")) {
-          console.log(`✗ Model ${modelName} not found, trying next...`);
-          continue;
-        }
-        // Handle quota exceeded
-        if (error?.message?.includes("429") || error?.message?.includes("quota") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
-          try {
-            const errorObj = typeof error.message === 'string' ? JSON.parse(error.message) : error.message;
-            if (errorObj?.error?.code === 429) {
-              return { 
-                success: false, 
-                error: "QUOTA_EXCEEDED",
-                quotaError: errorObj.error
-              };
-            }
-          } catch (e) {
-            // Ignore parse error
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: prompt,
+      });
+      const text = response.text;
+      console.log(`✓ Successfully used model: ${MODEL_NAME} for topic generation`);
+      return { success: true, response: text };
+    } catch (error: any) {
+      // Handle quota exceeded
+      if (error?.message?.includes("429") || error?.message?.includes("quota") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
+        try {
+          const errorObj = typeof error.message === 'string' ? JSON.parse(error.message) : error.message;
+          if (errorObj?.error?.code === 429) {
+            return { 
+              success: false, 
+              error: "QUOTA_EXCEEDED",
+              quotaError: errorObj.error
+            };
           }
+        } catch (e) {
+          // Ignore parse error
         }
-        console.error(`API Key error with model ${modelName}:`, error?.message || error);
-        return { success: false, error: error?.message || String(error) };
       }
+      // Nếu là lỗi khác (auth, 404, etc), trả về lỗi ngay
+      console.error(`API Key error with model ${MODEL_NAME}:`, error?.message || error);
+      return { success: false, error: error?.message || String(error) };
     }
-    
-    return { 
-      success: false, 
-      error: "None of the available model names were found." 
-    };
   } finally {
     if (originalApiKey !== undefined) {
       process.env.GEMINI_API_KEY = originalApiKey;
