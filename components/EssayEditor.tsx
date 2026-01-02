@@ -374,6 +374,70 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
             </div>
           </div>
 
+          {/* Mobile Feedback Section - Hiển thị trên mobile, ẩn trên desktop */}
+          <div className="lg:hidden">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-gray-200">Feedback</h3>
+              {isAnalyzing && (
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                  <span>Analyzing...</span>
+                </div>
+              )}
+            </div>
+            {feedback ? (
+              <div className="bg-[#131823] rounded-lg p-4 border border-gray-800 space-y-4 max-h-[200px] overflow-y-auto custom-scrollbar">
+                {feedback.suggestions && feedback.suggestions.length > 0 && (
+                  <div>
+                    <p className="text-gray-400 text-xs mb-2 font-medium">Suggested improvements:</p>
+                    <ul className="space-y-2">
+                      {feedback.suggestions.slice(0, 3).map((s, i) => (
+                        <li key={i} className="flex gap-2 text-xs text-gray-300">
+                          <span className="w-1 h-1 rounded-full bg-gray-500 mt-1.5 flex-none"></span>
+                          <span className="leading-relaxed break-words">
+                            {s.error && (
+                              <>
+                                <span className="line-through text-red-400">{s.error}</span> →{' '}
+                                <span className="text-primary font-bold">{s.fix}</span>
+                              </>
+                            )}
+                            {s.reason && <><br/><span className="block text-[10px] text-gray-400 mt-1">{s.reason}</span></>}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {feedback.suggestions.length > 3 && (
+                      <button
+                        onClick={() => setShowSidebar(true)}
+                        className="mt-2 text-xs text-primary hover:underline"
+                      >
+                        Xem thêm {feedback.suggestions.length - 3} gợi ý khác →
+                      </button>
+                    )}
+                  </div>
+                )}
+                {(!feedback.suggestions || feedback.suggestions.length === 0) && (
+                  <div className="text-center py-3">
+                    <p className="text-xs text-gray-400">Không có gợi ý cải thiện. Bài viết của bạn rất tốt!</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-[#131823] rounded-lg p-4 border border-gray-800">
+                <p className="text-gray-500 text-xs text-center">
+                  {isAnalyzing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                      Đang phân tích...
+                    </span>
+                  ) : (
+                    "Viết để nhận feedback tự động"
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Bottom Action Bar */}
           <div className="flex items-center justify-between h-auto sm:h-12 gap-2 sm:gap-0">
             <button
@@ -444,8 +508,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
             </div>
           )}
 
-          {/* Feedback Section */}
-          <div>
+          {/* Feedback Section - Desktop only (ẩn trên mobile vì đã có ở main section) */}
+          <div className="hidden lg:block">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h3 className="text-base sm:text-lg font-bold text-gray-200">Feedback</h3>
               {isAnalyzing && (
