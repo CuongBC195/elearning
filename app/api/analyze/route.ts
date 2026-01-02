@@ -2,8 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { NextResponse } from "next/server";
 
-// Sử dụng gemini-1.5-flash-latest (1,500 requests/ngày ở bản miễn phí)
-const MODEL_NAME = "gemini-1.5-flash-latest";
+// Sử dụng gemini-1.5-flash (1,500 requests/ngày ở bản miễn phí)
+const MODEL_NAME = "gemini-1.5-flash";
 
 // Hàm thử API key với gemini-1.5-flash
 async function tryApiKey(apiKey: string, prompt: string) {
@@ -13,7 +13,8 @@ async function tryApiKey(apiKey: string, prompt: string) {
   process.env.GEMINI_API_KEY = apiKey;
   
   try {
-    const ai = new GoogleGenAI({});
+    // Không truyền config để dùng default API version (v1, không phải v1beta)
+    const ai = new GoogleGenAI();
     
     try {
       const response = await ai.models.generateContent({
