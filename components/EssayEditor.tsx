@@ -403,7 +403,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         </section>
 
         {/* Sidebar - Hidden on mobile, toggleable */}
-        <aside className={`${showSidebar ? 'fixed' : 'hidden'} lg:relative lg:flex lg:${showSidebar ? '' : 'flex'} w-full lg:w-[400px] h-full lg:h-auto top-0 right-0 z-40 lg:z-auto flex-none bg-[#0e121a] border-l border-gray-800 p-4 sm:p-6 overflow-y-auto custom-scrollbar flex flex-col gap-4 sm:gap-6`}>
+        <aside className={`${showSidebar ? 'fixed flex' : 'hidden'} lg:relative lg:flex w-full lg:w-[400px] h-full lg:h-auto top-0 right-0 z-40 lg:z-auto flex-none bg-[#0e121a] border-l border-gray-800 p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-col gap-4 sm:gap-6`}>
           {/* Close button for mobile */}
           <button
             onClick={() => setShowSidebar(false)}
