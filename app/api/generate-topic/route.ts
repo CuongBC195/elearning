@@ -13,8 +13,7 @@ async function tryApiKey(apiKey: string, prompt: string) {
   process.env.GEMINI_API_KEY = apiKey;
   
   try {
-    // Không truyền config để dùng default API version (v1, không phải v1beta)
-    const ai = new GoogleGenAI();
+    const ai = new GoogleGenAI({});
     
     try {
       const response = await ai.models.generateContent({
