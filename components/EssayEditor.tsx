@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary } from '@/types';
+import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion } from '@/types';
 
 interface EssayEditorProps {
   certificateId: string;
@@ -25,11 +25,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   const [notes, setNotes] = useState("");
   const [summary, setSummary] = useState<EssaySummary | null>(null);
   const [allFeedbacks, setAllFeedbacks] = useState<AnalysisResult[]>([]); // Lưu tất cả feedback để tổng kết
+  const [isCompleted, setIsCompleted] = useState(false); // Đánh dấu bài đã hoàn thành
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedLength = useRef(0);
 
   // Save essay to localStorage (persistent storage - lưu lâu dài)
-  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary) => {
+  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult) => {
     const savedEssays = localStorage.getItem('saved_essays');
     let essays: SavedEssay[] = savedEssays ? JSON.parse(savedEssays) : [];
     
@@ -45,7 +46,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       content,
       essayData: data,
       notes: notesToSave !== undefined ? notesToSave : (essayIndex >= 0 ? essays[essayIndex].notes : ""),
-      summary: summaryToSave !== undefined ? summaryToSave : (essayIndex >= 0 ? essays[essayIndex].summary : undefined)
+      summary: summaryToSave !== undefined ? summaryToSave : (essayIndex >= 0 ? essays[essayIndex].summary : undefined),
+      finalFeedback: finalFeedbackToSave !== undefined ? finalFeedbackToSave : (essayIndex >= 0 ? essays[essayIndex].finalFeedback : undefined)
     };
 
     if (essayIndex >= 0) {
@@ -73,11 +75,25 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
             setCurrentEssayId(essay.id);
             setNotes(essay.notes || "");
             setSummary(essay.summary || null);
-            setFeedback(null);
-            setAccuracy(0);
-            setCurrentSentenceIndex(0);
+            // Load feedback cuối cùng nếu có
+            if (essay.finalFeedback) {
+              setFeedback(essay.finalFeedback);
+              setAccuracy(essay.finalFeedback.accuracy || 0);
+            } else {
+              setFeedback(null);
+              setAccuracy(0);
+            }
+            // Kiểm tra xem bài đã hoàn thành chưa (progress = 100%)
+            const totalVnSentences = essay.essayData.sections.reduce((acc, section) => {
+              const sentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
+              return acc + sentences.length;
+            }, 0);
+            const userSentences = essay.content.match(/[^.!?]*[.!?]+/g) || [];
+            const progress = Math.min(100, Math.round((userSentences.length / totalVnSentences) * 100));
+            setIsCompleted(progress >= 100);
+            setCurrentSentenceIndex(userSentences.length);
             setAllFeedbacks([]);
-            lastAnalyzedLength.current = 0;
+            lastAnalyzedLength.current = essay.content.length;
             setIsLoadingTopic(false);
             return; // Đã load xong, không cần làm gì thêm
           }
@@ -146,16 +162,30 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   useEffect(() => {
     if (currentEssayId && essayData && currentText.length >= 0) {
       const timeoutId = setTimeout(() => {
-        saveEssayToStorage(currentEssayId, essayData, currentText, notes, summary || undefined);
+        // Lấy finalFeedback từ state nếu có
+        const finalFeedbackToSave = feedback || undefined;
+        saveEssayToStorage(currentEssayId, essayData, currentText, notes, summary || undefined, finalFeedbackToSave);
       }, 1000); // Debounce 1 second
 
       return () => clearTimeout(timeoutId);
     }
-  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary]);
+  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary, feedback]);
+
+  // Kiểm tra progress và đánh dấu hoàn thành
+  useEffect(() => {
+    if (!essayData) return;
+    const progress = calculateProgress();
+    if (progress >= 100 && !isCompleted) {
+      setIsCompleted(true);
+    } else if (progress < 100 && isCompleted) {
+      setIsCompleted(false);
+    }
+  }, [currentText, essayData, isCompleted]);
 
   // Auto-analyze sau mỗi câu (sau dấu chấm) - với debounce để tránh gọi quá nhiều
+  // KHÔNG gửi request nếu bài đã hoàn thành (100%)
   useEffect(() => {
-    if (!currentText || !essayData || isAnalyzing) return;
+    if (!currentText || !essayData || isAnalyzing || isCompleted) return; // Thêm check isCompleted
 
     // Tìm tất cả các câu đã hoàn thành (kết thúc bằng . ! ?)
     const sentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
@@ -169,9 +199,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       if (newLength > lastAnalyzedLength.current + 10) {
         // Debounce: đợi 1.5 giây sau khi user ngừng gõ
         const timeoutId = setTimeout(() => {
-          // Kiểm tra lại xem có còn là câu mới nhất không
+          // Kiểm tra lại xem có còn là câu mới nhất không và chưa hoàn thành
           const currentSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
-          if (currentSentences.length === sentences.length) {
+          if (currentSentences.length === sentences.length && !isCompleted) {
             analyzeCurrentText(lastSentence.trim());
             lastAnalyzedLength.current = newLength;
           }
@@ -180,7 +210,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [currentText, essayData, currentSentenceIndex, isAnalyzing]);
+  }, [currentText, essayData, currentSentenceIndex, isAnalyzing, isCompleted]);
 
   const analyzeCurrentText = async (textToAnalyze: string) => {
     if (!textToAnalyze || !essayData || isAnalyzing) return;
@@ -273,15 +303,22 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       setAccuracy(data.accuracy || 0);
       
       // Lưu feedback cuối cùng vào danh sách
-      setAllFeedbacks(prev => [...prev, data]);
+      const updatedFeedbacks = [...allFeedbacks, data];
+      setAllFeedbacks(updatedFeedbacks);
       
       // Tạo summary từ tất cả feedback
-      const newSummary = createSummary([...allFeedbacks, data], data.accuracy);
+      const newSummary = createSummary(updatedFeedbacks, data.accuracy);
       setSummary(newSummary);
       
-      // Lưu summary vào storage
+      // Đánh dấu bài đã hoàn thành nếu progress = 100%
+      const progress = calculateProgress();
+      if (progress >= 100) {
+        setIsCompleted(true);
+      }
+      
+      // Lưu summary và finalFeedback vào storage
       if (currentEssayId && essayData) {
-        saveEssayToStorage(currentEssayId, essayData, currentText, notes, newSummary);
+        saveEssayToStorage(currentEssayId, essayData, currentText, notes, newSummary, data);
       }
     } catch (error: any) {
       console.error("Analysis error:", error);
@@ -304,16 +341,18 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
     return progress;
   };
 
-  // Tạo summary từ tất cả feedback
+  // Tạo summary từ tất cả feedback - lưu toàn bộ suggestions với reason chi tiết
   const createSummary = (feedbacks: AnalysisResult[], finalAccuracy: number): EssaySummary => {
     const grammarErrors: string[] = [];
     const vocabularyIssues: string[] = [];
+    const allSuggestions: AnalysisSuggestion[] = []; // Lưu toàn bộ suggestions
     let totalErrors = 0;
 
     feedbacks.forEach(fb => {
       if (fb.suggestions) {
         fb.suggestions.forEach(s => {
           totalErrors++;
+          allSuggestions.push(s); // Lưu toàn bộ suggestion với reason
           // Phân loại lỗi dựa trên reason
           const reason = s.reason?.toLowerCase() || "";
           if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ")) {
@@ -335,6 +374,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       totalErrors,
       commonGrammarMistakes: grammarErrors.slice(0, 5), // Top 5 lỗi ngữ pháp
       commonVocabularyIssues: vocabularyIssues.slice(0, 5), // Top 5 lỗi từ vựng
+      allSuggestions, // Lưu toàn bộ suggestions với reason chi tiết
       accuracy: finalAccuracy,
       completedAt: Date.now()
     };
@@ -402,6 +442,20 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
               {showSidebar ? 'close' : 'menu'}
             </span>
           </button>
+        </div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="flex-none px-4 sm:px-6 py-2 border-b border-gray-800 bg-background-dark">
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400 font-medium">Progress:</span>
+          <div className="flex-1 h-2 bg-[#1a212e] rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-primary transition-all duration-300 rounded-full"
+              style={{ width: `${calculateProgress()}%` }}
+            ></div>
+          </div>
+          <span className="text-xs text-gray-300 font-bold min-w-[40px] text-right">{calculateProgress()}%</span>
         </div>
       </div>
 
@@ -597,30 +651,35 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
                   </div>
                 </div>
                 
-                {summary.commonGrammarMistakes.length > 0 && (
+                {/* Hiển thị toàn bộ suggestions với reason chi tiết */}
+                {summary.allSuggestions && summary.allSuggestions.length > 0 && (
                   <div>
-                    <p className="text-xs sm:text-sm text-gray-400 mb-2 font-medium">Lỗi ngữ pháp thường gặp:</p>
-                    <ul className="space-y-1.5">
-                      {summary.commonGrammarMistakes.map((mistake, i) => (
-                        <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2">
-                          <span className="w-1 h-1 rounded-full bg-red-400 mt-1.5 flex-none"></span>
-                          <span className="line-through">{mistake}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {summary.commonVocabularyIssues.length > 0 && (
-                  <div>
-                    <p className="text-xs sm:text-sm text-gray-400 mb-2 font-medium">Lỗi từ vựng thường gặp:</p>
-                    <ul className="space-y-1.5">
-                      {summary.commonVocabularyIssues.map((issue, i) => (
-                        <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2">
-                          <span className="w-1 h-1 rounded-full bg-orange-400 mt-1.5 flex-none"></span>
-                          <span className="line-through">{issue}</span>
-                        </li>
-                      ))}
+                    <p className="text-xs sm:text-sm text-gray-400 mb-2 sm:mb-3 font-medium">Chi tiết các lỗi đã phát hiện:</p>
+                    <ul className="space-y-2 sm:space-y-3 max-h-64 sm:max-h-80 overflow-y-auto custom-scrollbar">
+                      {summary.allSuggestions.map((suggestion, i) => {
+                        const isGrammar = suggestion.reason?.toLowerCase().includes("ngữ pháp") || 
+                                         suggestion.reason?.toLowerCase().includes("grammar") ||
+                                         suggestion.reason?.toLowerCase().includes("cấu trúc") ||
+                                         suggestion.reason?.toLowerCase().includes("động từ") ||
+                                         suggestion.reason?.toLowerCase().includes("mạo từ");
+                        return (
+                          <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2 sm:gap-3 p-2 sm:p-3 bg-[#1a212e] rounded border border-gray-700">
+                            <span className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full mt-1.5 sm:mt-2 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
+                            <div className="flex-1 space-y-1">
+                              {suggestion.error && (
+                                <div>
+                                  <span className="line-through text-red-400">{suggestion.error}</span>
+                                  {' → '}
+                                  <span className="text-primary font-bold">{suggestion.fix}</span>
+                                </div>
+                              )}
+                              {suggestion.reason && (
+                                <p className="text-[10px] sm:text-xs text-gray-400 leading-relaxed">{suggestion.reason}</p>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}

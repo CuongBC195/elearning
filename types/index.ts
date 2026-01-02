@@ -42,6 +42,7 @@ export interface EssaySummary {
   totalErrors: number;
   commonGrammarMistakes: string[];
   commonVocabularyIssues: string[];
+  allSuggestions: AnalysisSuggestion[]; // Lưu toàn bộ suggestions với reason chi tiết
   accuracy: number;
   completedAt: number;
 }
@@ -58,5 +59,6 @@ export interface SavedEssay {
   essayData: EssayData; // Original Vietnamese sections
   notes?: string; // User's personal notes
   summary?: EssaySummary; // Summary of errors and completion
+  finalFeedback?: AnalysisResult; // Lưu feedback cuối cùng để không cần gửi lại request
 }
 
