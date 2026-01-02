@@ -299,14 +299,24 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       {/* Header với Question */}
       <div className="flex-none px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-800 bg-background-dark">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-xs sm:text-sm md:text-base text-gray-300 font-normal leading-relaxed flex-1 min-w-0">
-            <span className="text-primary font-bold mr-1">Question:</span>
-            <span className="break-words">{essayData.title}</span>
-          </h1>
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+            {/* Logo */}
+            <div className="size-6 sm:size-8 flex items-center justify-center flex-shrink-0">
+              <img 
+                src="/logo.png" 
+                alt="3DO Learning" 
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <h1 className="text-xs sm:text-sm md:text-base text-gray-300 font-normal leading-relaxed flex-1 min-w-0">
+              <span className="text-primary font-bold mr-1">Question:</span>
+              <span className="break-words">{essayData.title}</span>
+            </h1>
+          </div>
           {/* Mobile sidebar toggle */}
           <button
             onClick={() => setShowSidebar(!showSidebar)}
-            className="lg:hidden p-2 rounded bg-[#1f2937] hover:bg-[#374151] text-gray-300 transition-colors"
+            className="lg:hidden p-2 rounded bg-[#1f2937] hover:bg-[#374151] text-gray-300 transition-colors flex-shrink-0"
             aria-label="Toggle sidebar"
           >
             <span className="material-symbols-outlined text-[20px]">
