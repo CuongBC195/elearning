@@ -2,12 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { NextResponse } from "next/server";
 
-// Thử các tên model khác nhau (1,500 requests/ngày ở bản miễn phí)
+// Thử các tên model khác nhau (theo thứ tự ưu tiên)
+// gemini-2.5-flash là model mới nhất (1,500 requests/ngày ở bản miễn phí)
 const MODEL_NAMES = [
-  "gemini-1.5-flash",
-  "models/gemini-1.5-flash",
-  "gemini-pro",
-  "gemini-1.5-pro",
+  "gemini-2.5-flash",      // Model mới nhất (recommended)
+  "gemini-1.5-flash",      // Fallback
+  "gemini-pro",            // Fallback
+  "gemini-1.5-pro",        // Fallback
 ];
 
 // Hàm thử API key với nhiều model names
