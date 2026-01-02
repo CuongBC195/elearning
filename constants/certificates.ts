@@ -55,6 +55,13 @@ export const CERTIFICATES: CertificateConfig[] = [
     fullName: "Pearson Test of English Academic",
     bands: ["10-30", "31-50", "51-70", "71-84", "85-90"],
     format: "Academic essay, độ dài 200-300 từ, chủ đề học thuật, yêu cầu cấu trúc rõ ràng và từ vựng chuyên ngành."
+  },
+  {
+    id: "vstep",
+    name: "VSTEP",
+    fullName: "Vietnamese Standardized Test of English Proficiency",
+    bands: ["A1", "A2", "B1", "B2", "C1", "C2"],
+    format: "Essay theo Khung năng lực ngoại ngữ 6 bậc Việt Nam, độ dài 250-350 từ, chủ đề phù hợp với từng bậc, yêu cầu thể hiện năng lực ngôn ngữ theo chuẩn VNQF."
   }
 ];
 
