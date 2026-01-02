@@ -375,7 +375,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
                 className="flex items-center gap-2 px-6 py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Submit
-                <span className="material-symbols-outlined text-[18px]">monetization_on</span>
+                {/* <span className="material-symbols-outlined text-[18px]">monetization_on</span> */}
               </button>
             </div>
           </div>
@@ -456,7 +456,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
             )}
           </div>
 
-          {/* Achievements (placeholder) */}
+          {/* Achievements (placeholder)
           <div className="mt-auto">
             <h3 className="text-lg font-bold text-gray-200 mb-4">Today's Achievements</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -469,7 +469,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
                 <span className="text-sm font-medium text-gray-300">Bright Mind</span>
               </div>
             </div>
-          </div>
+          </div> */}
         </aside>
       </main>
     </>
