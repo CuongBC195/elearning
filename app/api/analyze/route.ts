@@ -2,10 +2,15 @@ import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { NextResponse } from "next/server";
 
-// Sử dụng gemini-1.5-flash (1,500 requests/ngày ở bản miễn phí)
-const MODEL_NAME = "gemini-1.5-flash";
+// Thử các tên model khác nhau (1,500 requests/ngày ở bản miễn phí)
+const MODEL_NAMES = [
+  "gemini-1.5-flash",
+  "models/gemini-1.5-flash",
+  "gemini-pro",
+  "gemini-1.5-pro",
+];
 
-// Hàm thử API key với gemini-1.5-flash
+// Hàm thử API key với nhiều model names
 async function tryApiKey(apiKey: string, prompt: string) {
   // SDK mới sử dụng environment variable GEMINI_API_KEY
   // Save original và set API key mới
@@ -15,34 +20,48 @@ async function tryApiKey(apiKey: string, prompt: string) {
   try {
     const ai = new GoogleGenAI({});
     
-    try {
-      const response = await ai.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt,
-      });
-      const text = response.text;
-      console.log(`✓ Successfully used model: ${MODEL_NAME}`);
-      return { success: true, response: text };
-    } catch (error: any) {
-      // Nếu là lỗi 429 (quota exceeded), parse error để lấy thông tin
-      if (error?.message?.includes("429") || error?.message?.includes("quota") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
-        try {
-          const errorObj = typeof error.message === 'string' ? JSON.parse(error.message) : error.message;
-          if (errorObj?.error?.code === 429) {
-            return { 
-              success: false, 
-              error: "QUOTA_EXCEEDED",
-              quotaError: errorObj.error
-            };
-          }
-        } catch (e) {
-          // Ignore parse error
+    // Thử từng model name
+    for (const modelName of MODEL_NAMES) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+        });
+        const text = response.text;
+        console.log(`✓ Successfully used model: ${modelName}`);
+        return { success: true, response: text };
+      } catch (error: any) {
+        // Nếu là lỗi 404 (model not found), thử model tiếp theo
+        if (error?.message?.includes("404") || error?.message?.includes("not found")) {
+          console.log(`✗ Model ${modelName} not found, trying next...`);
+          continue;
         }
+        // Nếu là lỗi 429 (quota exceeded), parse error để lấy thông tin
+        if (error?.message?.includes("429") || error?.message?.includes("quota") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
+          try {
+            const errorObj = typeof error.message === 'string' ? JSON.parse(error.message) : error.message;
+            if (errorObj?.error?.code === 429) {
+              return { 
+                success: false, 
+                error: "QUOTA_EXCEEDED",
+                quotaError: errorObj.error
+              };
+            }
+          } catch (e) {
+            // Ignore parse error
+          }
+        }
+        // Nếu là lỗi khác (auth, etc), trả về lỗi ngay
+        console.error(`API Key error with model ${modelName}:`, error?.message || error);
+        return { success: false, error: error?.message || String(error) };
       }
-      // Nếu là lỗi khác (auth, 404, etc), trả về lỗi ngay
-      console.error(`API Key error with model ${MODEL_NAME}:`, error?.message || error);
-      return { success: false, error: error?.message || String(error) };
     }
+    
+    // Nếu tất cả models đều không tìm thấy
+    return { 
+      success: false, 
+      error: "None of the available model names were found. Please check your API key permissions." 
+    };
   } finally {
     // Restore original API key
     if (originalApiKey !== undefined) {
