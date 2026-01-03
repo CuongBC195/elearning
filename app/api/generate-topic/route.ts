@@ -115,10 +115,12 @@ export async function POST(req: Request) {
     let result = null;
     let lastError = null;
 
-    // Step 1: Try GitHub Models first (fastest, < 5s)
+    // Step 1: Try GitHub Models first (fastest, < 5s) - DISABLED if not working
+    // Note: GitHub Models endpoint may not be available, skip if fails consistently
     const githubModelsKey = process.env.GITHUB_MODELS_API_KEY;
+    const ENABLE_GITHUB_MODELS = false; // Set to false to skip GitHub Models completely
     console.log("GitHub Models key check:", githubModelsKey ? "Found" : "Not found");
-    if (githubModelsKey) {
+    if (ENABLE_GITHUB_MODELS && githubModelsKey) {
       console.log("Trying GitHub Models (DeepSeek-V3/Gemini 2.0 Flash) for topic generation...");
       result = await callGitHubModels(prompt, githubModelsKey);
       if (result.success) {
@@ -128,7 +130,11 @@ export async function POST(req: Request) {
         lastError = result.error;
       }
     } else {
-      console.log("⚠ GitHub Models API key not found, trying OpenRouter...");
+      if (!ENABLE_GITHUB_MODELS) {
+        console.log("⚠ GitHub Models disabled (service unavailable), trying OpenRouter...");
+      } else {
+        console.log("⚠ GitHub Models API key not found, trying OpenRouter...");
+      }
     }
 
     // Step 2: Fallback to OpenRouter if GitHub Models failed
