@@ -166,9 +166,9 @@ export async function POST(req: Request) {
     if (!result || !result.success) {
       console.error("All API keys failed for topic generation. Last error:", lastError);
       
-      // Check if it's a quota error
-      if (result?.error === "QUOTA_EXCEEDED" && result?.quotaError) {
-        const quotaError = result.quotaError;
+      // Check if it's a quota error (only from Gemini, not OpenRouter)
+      if (result && 'quotaError' in result && result.error === "QUOTA_EXCEEDED") {
+        const quotaError = (result as any).quotaError;
         const limit = quotaError.details?.[0]?.violations?.[0]?.quotaValue || "20";
         
         return NextResponse.json(
