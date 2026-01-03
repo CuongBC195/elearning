@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { NextResponse } from "next/server";
 import { callOpenRouter } from "@/lib/openrouter";
+import { callGitHubModels } from "@/lib/github-models";
 
 // Thử các tên model khác nhau (theo thứ tự ưu tiên)
 // gemini-2.5-flash là model mới nhất (1,500 requests/ngày ở bản miễn phí)
@@ -80,27 +81,43 @@ export async function POST(req: Request) {
 
     const prompt = SYSTEM_PROMPTS.EVALUATOR(target, sourceVn) + `\nUser English Input: "${userEn}"`;
 
-    // Strategy: Try OpenRouter (DeepSeek - free) first, then fallback to Gemini
+    // Strategy: Try GitHub Models (fastest) → OpenRouter → Gemini
     let result = null;
     let lastError = null;
 
-    // Step 1: Try OpenRouter with DeepSeek (free tier)
-    const openRouterKey = process.env.OPENROUTER_API_KEY;
-    console.log("OpenRouter key check:", openRouterKey ? "Found" : "Not found");
-    if (openRouterKey) {
-      console.log("Trying OpenRouter (DeepSeek free models)...");
-      result = await callOpenRouter(prompt, openRouterKey);
+    // Step 1: Try GitHub Models first (fastest, < 5s)
+    const githubModelsKey = process.env.GITHUB_MODELS_API_KEY;
+    console.log("GitHub Models key check:", githubModelsKey ? "Found" : "Not found");
+    if (githubModelsKey) {
+      console.log("Trying GitHub Models (DeepSeek-V3/Gemini 2.0 Flash)...");
+      result = await callGitHubModels(prompt, githubModelsKey);
       if (result.success) {
-        console.log("✓ OpenRouter succeeded!");
+        console.log("✓ GitHub Models succeeded!");
       } else {
-        console.log("✗ OpenRouter failed:", result.error);
+        console.log("✗ GitHub Models failed:", result.error);
         lastError = result.error;
       }
     } else {
-      console.log("⚠ OpenRouter API key not found, skipping OpenRouter and using Gemini directly");
+      console.log("⚠ GitHub Models API key not found, trying OpenRouter...");
     }
 
-    // Step 2: Fallback to Gemini if OpenRouter failed
+    // Step 2: Fallback to OpenRouter if GitHub Models failed
+    if (!result || !result.success) {
+      const openRouterKey = process.env.OPENROUTER_API_KEY;
+      console.log("OpenRouter key check:", openRouterKey ? "Found" : "Not found");
+      if (openRouterKey) {
+        console.log("Trying OpenRouter (DeepSeek free models)...");
+        result = await callOpenRouter(prompt, openRouterKey);
+        if (result.success) {
+          console.log("✓ OpenRouter succeeded!");
+        } else {
+          console.log("✗ OpenRouter failed:", result.error);
+          lastError = result.error;
+        }
+      }
+    }
+
+    // Step 3: Fallback to Gemini if both failed
     if (!result || !result.success) {
       console.log("Falling back to Gemini API...");
       
