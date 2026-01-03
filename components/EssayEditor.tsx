@@ -28,6 +28,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   const [isCompleted, setIsCompleted] = useState(false); // Đánh dấu bài đã hoàn thành
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedLength = useRef(0);
+  const isLoadingTopicRef = useRef(false); // Prevent duplicate topic loading
 
   // Save essay to localStorage (persistent storage - lưu lâu dài)
   const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult) => {
@@ -114,9 +115,17 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
     // Nếu đã có essayData rồi, không load lại
     if (essayData) return;
 
+    // Prevent duplicate requests
+    if (isLoadingTopicRef.current) {
+      console.log("⚠ Topic loading already in progress, skipping duplicate request");
+      return;
+    }
+
     const loadTopic = async () => {
+      isLoadingTopicRef.current = true;
       setIsLoadingTopic(true);
       try {
+        console.log("📝 Loading new topic for:", certificateId, band);
         const res = await fetch('/api/generate-topic', {
           method: 'POST',
           headers: {
@@ -147,16 +156,18 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         setAccuracy(0);
         setCurrentSentenceIndex(0);
         lastAnalyzedLength.current = 0;
+        console.log("✓ Topic loaded successfully, essayId:", newEssayId);
       } catch (error: any) {
         console.error("Error loading topic:", error);
         alert(`Failed to load topic: ${error.message}\n\nPlease try again.`);
       } finally {
         setIsLoadingTopic(false);
+        isLoadingTopicRef.current = false;
       }
     };
 
     loadTopic();
-  }, [certificateId, band, essayId]);
+  }, [certificateId, band, essayId, essayData]);
 
   // Auto-save khi text thay đổi
   useEffect(() => {

@@ -3,7 +3,15 @@
  * Uses DeepSeek-V3 and Gemini 2.0 Flash (fast models < 5s)
  */
 
-const GITHUB_MODELS_API_URL = "https://models.inference.ai.vespa.party/v1/chat/completions";
+// GitHub Models API - có thể là một trong các endpoint sau
+// Thử các endpoint phổ biến cho GitHub Models
+const GITHUB_MODELS_ENDPOINTS = [
+  "https://api.github.com/models/v1/chat/completions",  // GitHub Models official (nếu có)
+  "https://models.inference.ai.vespa.party/v1/chat/completions",  // Alternative endpoint
+  "https://api.github.com/copilot/models/v1/chat/completions",  // GitHub Copilot Models
+];
+
+const GITHUB_MODELS_API_URL = GITHUB_MODELS_ENDPOINTS[1]; // Default to vespa.party
 
 // Fast models available on GitHub Models (optimized for speed < 5s)
 const GITHUB_MODELS = [
@@ -79,7 +87,13 @@ export async function callGitHubModels(
           response: text,
         };
       } catch (error: any) {
-        console.error(`Error with model ${model}:`, error?.message || error);
+        // Log chi tiết hơn để debug
+        const errorMsg = error?.message || String(error);
+        console.error(`Error with model ${model}:`, errorMsg);
+        // Nếu là network error (fetch failed), có thể endpoint không đúng
+        if (errorMsg.includes("fetch failed") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("ENOTFOUND")) {
+          console.warn(`⚠ Network error with ${model} - endpoint may be incorrect or service unavailable`);
+        }
         // Continue to next model
         continue;
       }
