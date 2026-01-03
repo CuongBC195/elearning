@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { NextResponse } from "next/server";
+import { callOpenRouter } from "@/lib/openrouter";
 
 // Thử các tên model khác nhau (theo thứ tự ưu tiên)
 // gemini-2.5-flash là model mới nhất (1,500 requests/ngày ở bản miễn phí)
@@ -12,7 +13,7 @@ const MODEL_NAMES = [
 ];
 
 // Hàm thử API key với nhiều model names
-async function tryApiKey(apiKey: string, prompt: string) {
+async function tryApiKey(apiKey: string, prompt: string): Promise<{ success: boolean; response?: string; error?: string; quotaError?: any }> {
   // SDK mới sử dụng environment variable GEMINI_API_KEY
   // Save original và set API key mới
   const originalApiKey = process.env.GEMINI_API_KEY;
@@ -77,47 +78,70 @@ export async function POST(req: Request) {
   try {
     const { userEn, sourceVn, target } = await req.json();
 
-    // Lấy 4 API keys từ environment variables
-    const apiKeys = [
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY_2,
-      process.env.GEMINI_API_KEY_3,
-      process.env.GEMINI_API_KEY_4,
-    ].filter(Boolean) as string[];
-
-    console.log("API Keys found:", apiKeys.length, "keys");
-    
-    if (apiKeys.length === 0) {
-      console.error("No API keys configured in environment variables");
-      return NextResponse.json(
-        { error: "No API keys configured. Please check your .env.local file." },
-        { status: 500 }
-      );
-    }
-
     const prompt = SYSTEM_PROMPTS.EVALUATOR(target, sourceVn) + `\nUser English Input: "${userEn}"`;
 
-    // Thử từng API key cho đến khi thành công
+    // Strategy: Try OpenRouter (DeepSeek - free) first, then fallback to Gemini
     let result = null;
     let lastError = null;
-    for (let i = 0; i < apiKeys.length; i++) {
-      console.log(`Trying API key ${i + 1}/${apiKeys.length}...`);
-      result = await tryApiKey(apiKeys[i], prompt);
+
+    // Step 1: Try OpenRouter with DeepSeek (free tier)
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    if (openRouterKey) {
+      console.log("Trying OpenRouter (DeepSeek free models)...");
+      result = await callOpenRouter(prompt, openRouterKey);
       if (result.success) {
-        console.log(`API key ${i + 1} succeeded!`);
-        break;
+        console.log("✓ OpenRouter succeeded!");
       } else {
+        console.log("✗ OpenRouter failed:", result.error);
         lastError = result.error;
-        console.log(`API key ${i + 1} failed:`, lastError);
+      }
+    }
+
+    // Step 2: Fallback to Gemini if OpenRouter failed
+    if (!result || !result.success) {
+      console.log("Falling back to Gemini API...");
+      
+      // Lấy 4 Gemini API keys từ environment variables
+      const apiKeys = [
+        process.env.GEMINI_API_KEY_1,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY_4,
+      ].filter(Boolean) as string[];
+
+      console.log("Gemini API Keys found:", apiKeys.length, "keys");
+      
+      if (apiKeys.length === 0) {
+        console.error("No Gemini API keys configured");
+        // If OpenRouter also failed, return error
+        if (!result || !result.success) {
+          return NextResponse.json(
+            { error: "No API keys configured. Please check your .env.local file." },
+            { status: 500 }
+          );
+        }
+      } else {
+        // Thử từng Gemini API key cho đến khi thành công
+        for (let i = 0; i < apiKeys.length; i++) {
+          console.log(`Trying Gemini API key ${i + 1}/${apiKeys.length}...`);
+          result = await tryApiKey(apiKeys[i], prompt);
+          if (result.success) {
+            console.log(`✓ Gemini API key ${i + 1} succeeded!`);
+            break;
+          } else {
+            lastError = result.error;
+            console.log(`✗ Gemini API key ${i + 1} failed:`, lastError);
+          }
+        }
       }
     }
 
     if (!result || !result.success) {
       console.error("All API keys failed. Last error:", lastError);
       
-      // Check if it's a quota error
-      if (result?.error === "QUOTA_EXCEEDED" && result?.quotaError) {
-        const quotaError = result.quotaError;
+      // Check if it's a quota error (only from Gemini, not OpenRouter)
+      if (result && 'quotaError' in result && result.error === "QUOTA_EXCEEDED") {
+        const quotaError = (result as any).quotaError;
         const limit = quotaError.details?.[0]?.violations?.[0]?.quotaValue || "20";
         const metric = quotaError.details?.[0]?.violations?.[0]?.quotaMetric?.split('/').pop() || "requests per day";
         

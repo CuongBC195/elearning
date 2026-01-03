@@ -3,6 +3,7 @@ import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { CERTIFICATES, getCertificateById } from "@/constants/certificates";
 import { NextResponse } from "next/server";
 import { GeneratedTopic } from "@/types";
+import { callOpenRouter } from "@/lib/openrouter";
 
 // Thử các tên model khác nhau (theo thứ tự ưu tiên)
 // gemini-2.5-flash là model mới nhất (1,500 requests/ngày ở bản miễn phí)
@@ -109,17 +110,56 @@ export async function POST(req: Request) {
       certificate.format
     );
 
-    // Thử từng API key cho đến khi thành công
+    // Strategy: Try OpenRouter (DeepSeek - free) first, then fallback to Gemini
     let result = null;
     let lastError = null;
-    for (let i = 0; i < apiKeys.length; i++) {
-      console.log(`Trying API key ${i + 1}/${apiKeys.length} for topic generation...`);
-      result = await tryApiKey(apiKeys[i], prompt);
+
+    // Step 1: Try OpenRouter with DeepSeek (free tier)
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    if (openRouterKey) {
+      console.log("Trying OpenRouter (DeepSeek free models) for topic generation...");
+      result = await callOpenRouter(prompt, openRouterKey);
       if (result.success) {
-        console.log(`API key ${i + 1} succeeded for topic generation!`);
-        break;
+        console.log("✓ OpenRouter succeeded for topic generation!");
       } else {
+        console.log("✗ OpenRouter failed:", result.error);
         lastError = result.error;
+      }
+    }
+
+    // Step 2: Fallback to Gemini if OpenRouter failed
+    if (!result || !result.success) {
+      console.log("Falling back to Gemini API for topic generation...");
+      
+      // Lấy 4 Gemini API keys từ environment variables
+      const apiKeys = [
+        process.env.GEMINI_API_KEY_1,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY_4,
+      ].filter(Boolean) as string[];
+
+      if (apiKeys.length === 0) {
+        console.error("No Gemini API keys configured");
+        // If OpenRouter also failed, return error
+        if (!result || !result.success) {
+          return NextResponse.json(
+            { error: "No API keys configured" },
+            { status: 500 }
+          );
+        }
+      } else {
+        // Thử từng Gemini API key cho đến khi thành công
+        for (let i = 0; i < apiKeys.length; i++) {
+          console.log(`Trying Gemini API key ${i + 1}/${apiKeys.length} for topic generation...`);
+          result = await tryApiKey(apiKeys[i], prompt);
+          if (result.success) {
+            console.log(`✓ Gemini API key ${i + 1} succeeded for topic generation!`);
+            break;
+          } else {
+            lastError = result.error;
+          }
+        }
       }
     }
 
