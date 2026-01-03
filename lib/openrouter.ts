@@ -6,9 +6,12 @@
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 // DeepSeek models available on OpenRouter (free tier)
+// Note: Model IDs may change, check https://openrouter.ai/models for latest
 const DEEPSEEK_MODELS = [
-  "deepseek/deepseek-v3:free",      // Latest DeepSeek model (free)
-  "deepseek/deepseek-r1:free",      // Reasoning model (free)
+  "deepseek/deepseek-chat",         // DeepSeek Chat (free tier)
+  "deepseek/deepseek-coder",        // DeepSeek Coder (free tier)
+  "meta-llama/llama-3.2-3b-instruct:free",  // Alternative free model
+  "google/gemini-flash-1.5-8b:free",        // Alternative free model
 ];
 
 export interface OpenRouterResponse {
