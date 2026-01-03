@@ -116,6 +116,7 @@ export async function POST(req: Request) {
 
     // Step 1: Try OpenRouter with DeepSeek (free tier)
     const openRouterKey = process.env.OPENROUTER_API_KEY;
+    console.log("OpenRouter key check:", openRouterKey ? "Found" : "Not found");
     if (openRouterKey) {
       console.log("Trying OpenRouter (DeepSeek free models) for topic generation...");
       result = await callOpenRouter(prompt, openRouterKey);
@@ -125,6 +126,8 @@ export async function POST(req: Request) {
         console.log("✗ OpenRouter failed:", result.error);
         lastError = result.error;
       }
+    } else {
+      console.log("⚠ OpenRouter API key not found, skipping OpenRouter and using Gemini directly");
     }
 
     // Step 2: Fallback to Gemini if OpenRouter failed
