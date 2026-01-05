@@ -28,12 +28,12 @@ const suspiciousIPs = new Set<string>();
 
 // Configuration - relaxed for dev, strict for production
 const CONFIG = {
-  // Rate limits per minute (more relaxed)
-  REQUESTS_PER_MINUTE: isDevelopment ? 50 : 20,  // 20 requests/minute in production
-  REQUESTS_PER_HOUR: isDevelopment ? 500 : 200,
+  // Rate limits per minute
+  REQUESTS_PER_MINUTE: isDevelopment ? 50 : 10,  // 10 requests/minute in production
+  REQUESTS_PER_HOUR: isDevelopment ? 500 : 100,
   
-  // Block duration (shorter)
-  BLOCK_DURATION_MS: isDevelopment ? 30 * 1000 : 2 * 60 * 1000,  // 30s dev, 2min prod
+  // Block duration
+  BLOCK_DURATION_MS: isDevelopment ? 30 * 1000 : 15 * 60 * 1000,  // 30s dev, 15min prod
   PERMANENT_BLOCK_THRESHOLD: 5,
   
   // Request validation (not used anymore for interval check)
@@ -41,7 +41,7 @@ const CONFIG = {
   MAX_CONTENT_LENGTH: 10000,
   
   // Suspicious behavior detection
-  BURST_THRESHOLD: isDevelopment ? 20 : 10,  // More lenient
+  BURST_THRESHOLD: isDevelopment ? 20 : 10,
   BURST_WINDOW_MS: 10000,
   
   // Cleanup
