@@ -3,6 +3,13 @@ import { SYSTEM_PROMPTS } from "@/constants/prompts";
 import { NextResponse } from "next/server";
 import { callOpenRouter } from "@/lib/openrouter";
 import { callGitHubModels } from "@/lib/github-models";
+import { 
+  getClientId, 
+  checkRateLimit, 
+  detectSuspiciousBehavior, 
+  validateRequestBody,
+  logRequest 
+} from "@/lib/rate-limiter";
 
 // Thử các tên model khác nhau (theo thứ tự ưu tiên)
 // gemini-2.5-flash là model mới nhất (1,500 requests/ngày ở bản miễn phí)
@@ -77,87 +84,113 @@ async function tryApiKey(apiKey: string, prompt: string): Promise<{ success: boo
 
 export async function POST(req: Request) {
   try {
-    const { userEn, sourceVn, target } = await req.json();
+    // === SECURITY CHECKS ===
+    const clientId = getClientId(req);
+    
+    // 1. Check rate limit
+    const rateLimitResult = checkRateLimit(clientId);
+    if (!rateLimitResult.allowed) {
+      console.warn(`[BLOCKED] Rate limit exceeded for ${clientId}`);
+      return NextResponse.json(
+        { error: rateLimitResult.reason },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimitResult.retryAfter || 60),
+            'X-RateLimit-Remaining': '0',
+          }
+        }
+      );
+    }
+    
+    // 2. Check suspicious behavior
+    const suspiciousResult = detectSuspiciousBehavior(clientId, req);
+    if (suspiciousResult.suspicious) {
+      console.warn(`[BLOCKED] Suspicious behavior from ${clientId}: ${suspiciousResult.reason}`);
+      return NextResponse.json(
+        { error: suspiciousResult.reason },
+        { status: 403 }
+      );
+    }
+    
+    // 3. Log this request
+    logRequest(clientId, '/api/analyze', req);
+    
+    // === END SECURITY CHECKS ===
+
+    const body = await req.json();
+    
+    // 4. Validate request body
+    const validation = validateRequestBody(body, ['userEn', 'target']);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.reason },
+        { status: 400 }
+      );
+    }
+    
+    const { userEn, sourceVn, target } = body;
 
     const prompt = SYSTEM_PROMPTS.EVALUATOR(target, sourceVn) + `\nUser English Input: "${userEn}"`;
 
-    // Strategy: Try GitHub Models (fastest) → OpenRouter → Gemini
+    // Strategy: GitHub Models → Gemini → OpenRouter
     let result = null;
     let lastError = null;
 
-    // Step 1: Try GitHub Models first (fastest, < 5s) - DISABLED if not working
-    // Note: GitHub Models endpoint may not be available, skip if fails consistently
-    const githubModelsKey = process.env.GITHUB_MODELS_API_KEY;
-    const ENABLE_GITHUB_MODELS = false; // Set to false to skip GitHub Models completely
-    console.log("GitHub Models key check:", githubModelsKey ? "Found" : "Not found");
-    if (ENABLE_GITHUB_MODELS && githubModelsKey) {
-      console.log("Trying GitHub Models (DeepSeek-V3/Gemini 2.0 Flash)...");
-      result = await callGitHubModels(prompt, githubModelsKey);
+    // Step 1: Try GitHub Models first (fastest, Copilot Pro)
+    const githubModelsKeys = [
+      process.env.GITHUB_MODELS_API_KEY_1,
+      process.env.GITHUB_MODELS_API_KEY_2,
+    ].filter(Boolean) as string[];
+    console.log(`GitHub Models keys: ${githubModelsKeys.length} found`);
+    
+    if (githubModelsKeys.length > 0) {
+      console.log("Trying GitHub Models (GPT-4o mini, Llama 3.3)...");
+      result = await callGitHubModels(prompt, githubModelsKeys);
       if (result.success) {
         console.log("✓ GitHub Models succeeded!");
       } else {
         console.log("✗ GitHub Models failed:", result.error);
         lastError = result.error;
       }
-    } else {
-      if (!ENABLE_GITHUB_MODELS) {
-        console.log("⚠ GitHub Models disabled (service unavailable), trying OpenRouter...");
-      } else {
-        console.log("⚠ GitHub Models API key not found, trying OpenRouter...");
-      }
     }
 
-    // Step 2: Fallback to OpenRouter if GitHub Models failed or disabled
-    if (!result || !result.success) {
-      const openRouterKey = process.env.OPENROUTER_API_KEY;
-      console.log("OpenRouter key check:", openRouterKey ? "Found" : "Not found");
-      if (openRouterKey) {
-        console.log("Trying OpenRouter (DeepSeek free models)...");
-        result = await callOpenRouter(prompt, openRouterKey);
-        if (result.success) {
-          console.log("✓ OpenRouter succeeded!");
-        } else {
-          console.log("✗ OpenRouter failed:", result.error);
-          lastError = result.error;
-        }
-      }
-    }
-
-    // Step 3: Fallback to Gemini if both failed
+    // Step 2: Fallback to Gemini if GitHub Models failed
     if (!result || !result.success) {
       console.log("Falling back to Gemini API...");
-      
-      // Lấy 4 Gemini API keys từ environment variables
-      const apiKeys = [
+      const geminiKeys = [
         process.env.GEMINI_API_KEY_1,
         process.env.GEMINI_API_KEY_2,
         process.env.GEMINI_API_KEY_3,
         process.env.GEMINI_API_KEY_4,
       ].filter(Boolean) as string[];
 
-      console.log("Gemini API Keys found:", apiKeys.length, "keys");
-      
-      if (apiKeys.length === 0) {
-        console.error("No Gemini API keys configured");
-        // If OpenRouter also failed, return error
-        if (!result || !result.success) {
-          return NextResponse.json(
-            { error: "No API keys configured. Please check your .env.local file." },
-            { status: 500 }
-          );
-        }
-      } else {
-        // Thử từng Gemini API key cho đến khi thành công
-        for (let i = 0; i < apiKeys.length; i++) {
-          console.log(`Trying Gemini API key ${i + 1}/${apiKeys.length}...`);
-          result = await tryApiKey(apiKeys[i], prompt);
+      if (geminiKeys.length > 0) {
+        for (let i = 0; i < geminiKeys.length; i++) {
+          console.log(`Trying Gemini key ${i + 1}/${geminiKeys.length}...`);
+          result = await tryApiKey(geminiKeys[i], prompt);
           if (result.success) {
-            console.log(`✓ Gemini API key ${i + 1} succeeded!`);
+            console.log(`✓ Gemini key ${i + 1} succeeded!`);
             break;
           } else {
+            console.log(`✗ Gemini key ${i + 1} failed:`, result.error);
             lastError = result.error;
-            console.log(`✗ Gemini API key ${i + 1} failed:`, lastError);
           }
+        }
+      }
+    }
+
+    // Step 3: Last resort - OpenRouter (DeepSeek free)
+    if (!result || !result.success) {
+      const openRouterKey = process.env.OPENROUTER_API_KEY;
+      if (openRouterKey) {
+        console.log("Falling back to OpenRouter (DeepSeek)...");
+        result = await callOpenRouter(prompt, openRouterKey);
+        if (result.success) {
+          console.log("✓ OpenRouter succeeded!");
+        } else {
+          console.log("✗ OpenRouter failed:", result.error);
+          lastError = result.error;
         }
       }
     }

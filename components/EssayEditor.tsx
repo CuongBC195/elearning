@@ -8,10 +8,12 @@ interface EssayEditorProps {
   band: string;
   target: string;
   essayId?: string; // ID của essay đang load (nếu có)
+  contentType?: "full" | "outline"; // Type of content
+  outlineLanguage?: "vietnamese" | "english"; // Language of the content
   onQuit: () => void; // Callback khi click Quit
 }
 
-export default function EssayEditor({ certificateId, band, target, essayId, onQuit }: EssayEditorProps) {
+export default function EssayEditor({ certificateId, band, target, essayId, contentType, outlineLanguage, onQuit }: EssayEditorProps) {
   const [essayData, setEssayData] = useState<EssayData | null>(null);
   const [currentText, setCurrentText] = useState("");
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
@@ -31,7 +33,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   const isLoadingTopicRef = useRef(false); // Prevent duplicate topic loading
 
   // Save essay to localStorage (persistent storage - lưu lâu dài)
-  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult) => {
+  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult, contentTyp?: "full" | "outline", outlineLang?: "vietnamese" | "english") => {
     const savedEssays = localStorage.getItem('saved_essays');
     let essays: SavedEssay[] = savedEssays ? JSON.parse(savedEssays) : [];
     
@@ -48,7 +50,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       essayData: data,
       notes: notesToSave !== undefined ? notesToSave : (essayIndex >= 0 ? essays[essayIndex].notes : ""),
       summary: summaryToSave !== undefined ? summaryToSave : (essayIndex >= 0 ? essays[essayIndex].summary : undefined),
-      finalFeedback: finalFeedbackToSave !== undefined ? finalFeedbackToSave : (essayIndex >= 0 ? essays[essayIndex].finalFeedback : undefined)
+      finalFeedback: finalFeedbackToSave !== undefined ? finalFeedbackToSave : (essayIndex >= 0 ? essays[essayIndex].finalFeedback : undefined),
+      contentType: contentTyp !== undefined ? contentTyp : (essayIndex >= 0 ? essays[essayIndex].contentType : "full"),
+      outlineLanguage: outlineLang !== undefined ? outlineLang : (essayIndex >= 0 ? essays[essayIndex].outlineLanguage : "vietnamese")
     };
 
     if (essayIndex >= 0) {
@@ -125,13 +129,18 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       isLoadingTopicRef.current = true;
       setIsLoadingTopic(true);
       try {
-        console.log("📝 Loading new topic for:", certificateId, band);
+        console.log("📝 Loading new topic for:", certificateId, band, "Content type:", contentType, "Language:", outlineLanguage);
         const res = await fetch('/api/generate-topic', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ certificateId, band })
+          body: JSON.stringify({ 
+            certificateId, 
+            band,
+            contentType: contentType || "full",
+            outlineLanguage: outlineLanguage || "vietnamese"
+          })
         });
 
         if (!res.ok) {
@@ -149,7 +158,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         // Tạo bài mới: tạo essayId mới và lưu vào storage
         const newEssayId = `essay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         setCurrentEssayId(newEssayId);
-        saveEssayToStorage(newEssayId, newEssayData, "");
+        saveEssayToStorage(newEssayId, newEssayData, "", undefined, undefined, undefined, contentType || "full", outlineLanguage || "vietnamese");
 
         setCurrentText("");
         setFeedback(null);
@@ -167,7 +176,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
     };
 
     loadTopic();
-  }, [certificateId, band, essayId, essayData]);
+  }, [certificateId, band, essayId, essayData, contentType, outlineLanguage]);
 
   // Auto-save khi text thay đổi
   useEffect(() => {
@@ -175,12 +184,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
       const timeoutId = setTimeout(() => {
         // Lấy finalFeedback từ state nếu có
         const finalFeedbackToSave = feedback || undefined;
-        saveEssayToStorage(currentEssayId, essayData, currentText, notes, summary || undefined, finalFeedbackToSave);
+        saveEssayToStorage(currentEssayId, essayData, currentText, notes, summary || undefined, finalFeedbackToSave, undefined, outlineLanguage || "vietnamese");
       }, 1000); // Debounce 1 second
 
       return () => clearTimeout(timeoutId);
     }
-  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary, feedback]);
+  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary, feedback, outlineLanguage]);
 
   // Kiểm tra progress và đánh dấu hoàn thành
   useEffect(() => {
@@ -395,7 +404,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
   const handleNotesChange = (value: string) => {
     setNotes(value);
     if (currentEssayId && essayData) {
-      saveEssayToStorage(currentEssayId, essayData, currentText, value, summary || undefined);
+      saveEssayToStorage(currentEssayId, essayData, currentText, value, summary || undefined, undefined, contentType || "full", outlineLanguage || "vietnamese");
     }
   };
 
@@ -426,27 +435,19 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
 
   return (
     <>
-      {/* Header với Question */}
-      <div className="flex-none px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-800 bg-background-dark">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-            {/* Logo */}
-            <div className="size-6 sm:size-8 flex items-center justify-center flex-shrink-0">
-              <img 
-                src="/logo.png" 
-                alt="3DO Learning" 
-                className="w-full h-full object-contain"
-              />
+      {/* Header - chỉ chứa logo và mobile toggle */}
+      <div className="flex-none px-4 sm:px-6 py-2 border-b border-gray-800 bg-background-dark lg:hidden">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="size-6 flex items-center justify-center">
+              <img src="/logo.png" alt="3DO Learning" className="w-full h-full object-contain" />
             </div>
-            <h1 className="text-xs sm:text-sm md:text-base text-gray-300 font-normal leading-relaxed flex-1 min-w-0">
-              <span className="text-primary font-bold mr-1">Question:</span>
-              <span className="break-words">{essayData.title}</span>
-            </h1>
+            <span className="text-sm font-semibold text-gray-300">3DO Learning</span>
           </div>
           {/* Mobile sidebar toggle */}
           <button
             onClick={() => setShowSidebar(!showSidebar)}
-            className="lg:hidden p-2 rounded bg-[#1f2937] hover:bg-[#374151] text-gray-300 transition-colors flex-shrink-0"
+            className="p-2 rounded bg-[#1f2937] hover:bg-[#374151] text-gray-300 transition-colors"
             aria-label="Toggle sidebar"
           >
             <span className="material-symbols-outlined text-[20px]">
@@ -456,57 +457,113 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="flex-none px-4 sm:px-6 py-2 border-b border-gray-800 bg-background-dark">
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400 font-medium">Progress:</span>
-          <div className="flex-1 h-2 bg-[#1a212e] rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-primary transition-all duration-300 rounded-full"
-              style={{ width: `${calculateProgress()}%` }}
-            ></div>
-          </div>
-          <span className="text-xs text-gray-300 font-bold min-w-[40px] text-right">{calculateProgress()}%</span>
-        </div>
-      </div>
-
       <main className="flex-1 flex flex-col lg:flex-row overflow-hidden relative bg-background-dark">
         {/* Main Editor Section */}
-        <section className="flex-1 h-full flex flex-col border-r-0 lg:border-r border-gray-800 bg-background-dark p-4 sm:p-6 gap-4 sm:gap-6 overflow-hidden">
-          {/* Vietnamese Text Display */}
+        <section className="flex-1 h-full flex flex-col border-r-0 lg:border-r border-gray-800 bg-background-dark overflow-hidden">
+          {/* Question Box - inside main section */}
+          <div className="flex-none px-4 sm:px-6 py-3 border-b border-gray-800/50">
+            <div className="flex items-start gap-2 sm:gap-3">
+              <div className="size-6 sm:size-8 flex items-center justify-center flex-shrink-0 mt-1 hidden lg:flex">
+                <img src="/logo.png" alt="3DO Learning" className="w-full h-full object-contain" />
+              </div>
+              <div className="flex-1 min-w-0 bg-gradient-to-r from-[#1a212e] to-[#111620] rounded-lg p-2 sm:p-3 border border-gray-700/50">
+                <div className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-primary mb-1">
+                  Question
+                </div>
+                <div className="text-xs sm:text-sm text-gray-200 leading-relaxed whitespace-pre-line">
+                  {essayData.title.trim()}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress Bar - inside main section */}
+          <div className="flex-none px-4 sm:px-6 py-2 border-b border-gray-800/50">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400 font-medium">Progress:</span>
+              <div className="flex-1 h-2 bg-[#1a212e] rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-primary transition-all duration-300 rounded-full"
+                  style={{ width: `${calculateProgress()}%` }}
+                ></div>
+              </div>
+              <span className="text-xs text-gray-300 font-bold min-w-[40px] text-right">{calculateProgress()}%</span>
+            </div>
+          </div>
+
+          {/* Content area with padding */}
+          <div className="flex-1 flex flex-col p-4 sm:p-6 gap-4 sm:gap-6 overflow-hidden">
+            {/* Vietnamese Text Display */}
           <div className="flex-1 bg-[#111620] rounded-lg p-4 sm:p-6 overflow-y-auto custom-scrollbar border border-gray-800/50">
             <div className="space-y-4 sm:space-y-6">
               {essayData.sections.map((section, idx) => {
-                // Split Vietnamese text into sentences
-                const vnSentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
-                const userSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
-                const currentSentenceIndex = userSentences.length;
-
                 return (
                   <div key={section.id} className="space-y-2">
                     <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-gray-500">
                       {section.label}
                     </h3>
-                    <p className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400">
-                      {vnSentences.map((sentence, sIdx) => {
-                        // Calculate global sentence index across all sections
-                        let globalSentenceIndex = 0;
-                        for (let i = 0; i < idx; i++) {
-                          const prevSentences = essayData.sections[i].vn.match(/[^.!?]*[.!?]+/g) || [essayData.sections[i].vn];
-                          globalSentenceIndex += prevSentences.length;
-                        }
-                        globalSentenceIndex += sIdx;
-                        
-                        // Highlight sentence that user is currently writing
-                        const isHighlighted = globalSentenceIndex === currentSentenceIndex && currentText.length > 0;
-                        
-                        return (
-                          <span key={sIdx} className={isHighlighted ? "text-pink-500 font-semibold" : ""}>
-                            {sentence}
-                          </span>
-                        );
-                      })}
-                    </p>
+                    {/* Check if content is outline format (has numbered points like 1 2 3 or bullet points -) */}
+                    {section.vn.match(/^\d+\s|^-\s/m) ? (
+                      // Outline format - render hierarchical structure
+                      <div className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400 space-y-1">
+                        {section.vn.split('\n').filter(line => line.trim()).map((line, lineIdx) => {
+                          const trimmedLine = line.trim();
+                          // Main point (starts with number)
+                          if (trimmedLine.match(/^\d+\s/)) {
+                            const num = trimmedLine.match(/^\d+/)?.[0];
+                            const text = trimmedLine.replace(/^\d+\s*/, '').trim();
+                            return (
+                              <div key={lineIdx} className="flex gap-2 mt-2 first:mt-0">
+                                <span className="text-primary font-bold min-w-[18px]">{num}</span>
+                                <span className="font-medium text-gray-300">{text}</span>
+                              </div>
+                            );
+                          }
+                          // Sub-point (starts with -)
+                          if (trimmedLine.startsWith('-')) {
+                            const text = trimmedLine.replace(/^-\s*/, '').trim();
+                            return (
+                              <div key={lineIdx} className="flex gap-2 pl-6">
+                                <span className="text-gray-500">-</span>
+                                <span className="text-gray-400">{text}</span>
+                              </div>
+                            );
+                          }
+                          // Regular text
+                          return (
+                            <div key={lineIdx} className="text-gray-400">{trimmedLine}</div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      // Full paragraph format - highlight current sentence
+                      <p className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400">
+                        {(() => {
+                          const vnSentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
+                          const userSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
+                          const currentSentenceIdx = userSentences.length;
+                          
+                          return vnSentences.map((sentence, sIdx) => {
+                            // Calculate global sentence index across all sections
+                            let globalSentenceIndex = 0;
+                            for (let i = 0; i < idx; i++) {
+                              const prevSentences = essayData.sections[i].vn.match(/[^.!?]*[.!?]+/g) || [essayData.sections[i].vn];
+                              globalSentenceIndex += prevSentences.length;
+                            }
+                            globalSentenceIndex += sIdx;
+                            
+                            // Highlight sentence that user is currently writing
+                            const isHighlighted = globalSentenceIndex === currentSentenceIdx && currentText.length > 0;
+                            
+                            return (
+                              <span key={sIdx} className={isHighlighted ? "text-pink-500 font-semibold" : ""}>
+                                {sentence}
+                              </span>
+                            );
+                          });
+                        })()}
+                      </p>
+                    )}
                     {idx < essayData.sections.length - 1 && <div className="h-4"></div>}
                   </div>
                 );
@@ -618,6 +675,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, onQu
               </button>
             </div>
           </div>
+          </div>{/* End content area */}
         </section>
 
         {/* Sidebar - Hidden on mobile, toggleable */}

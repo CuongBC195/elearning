@@ -17,17 +17,19 @@ export default function Home() {
     band: string;
     target: string;
     essayId?: string;
+    contentType?: "full" | "outline";
+    outlineLanguage?: "vietnamese" | "english";
   } | null>(null);
 
   const handleNewEssay = () => {
     setShowNewModal(true);
   };
 
-  const handleCreateEssay = (certificateId: string, band: string) => {
+  const handleCreateEssay = (certificateId: string, band: string, contentType: "full" | "outline", outlineLanguage: "vietnamese" | "english") => {
     const selectedCert = CERTIFICATES.find(c => c.id === certificateId);
     const target = selectedCert ? getCertificateDisplayName(certificateId, band) : "";
     
-    setCurrentEssay({ certificateId, band, target });
+    setCurrentEssay({ certificateId, band, target, contentType, outlineLanguage });
     setShowNewModal(false);
     setViewMode("editor");
   };
@@ -37,7 +39,9 @@ export default function Home() {
       certificateId: essay.certificateId,
       band: essay.band,
       target: essay.target,
-      essayId: essay.id
+      essayId: essay.id,
+      contentType: essay.contentType || "full",
+      outlineLanguage: essay.outlineLanguage || "vietnamese"
     });
     setViewMode("editor");
   };
@@ -71,6 +75,8 @@ export default function Home() {
       band={currentEssay.band}
       target={currentEssay.target}
       essayId={currentEssay.essayId}
+      contentType={currentEssay.contentType}
+      outlineLanguage={currentEssay.outlineLanguage}
       onQuit={handleQuit}
     />
   );

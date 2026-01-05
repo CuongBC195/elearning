@@ -28,6 +28,8 @@ export type Translations = { [key: string]: string };
 export interface GenerateTopicRequest {
   certificateId: string;
   band: string;
+  contentType?: "full" | "outline"; // full = đoạn văn đầy đủ, outline = dàn bài gợi ý
+  outlineLanguage?: "vietnamese" | "english"; // Language for the content
 }
 
 export interface GeneratedTopic {
@@ -60,5 +62,7 @@ export interface SavedEssay {
   notes?: string; // User's personal notes
   summary?: EssaySummary; // Summary of errors and completion
   finalFeedback?: AnalysisResult; // Lưu feedback cuối cùng để không cần gửi lại request
-}
+  template?: string; // Optional: sample essay content
+  contentType?: "full" | "outline"; // Type of content
+  outlineLanguage?: "vietnamese" | "english"; // Language of the content
 

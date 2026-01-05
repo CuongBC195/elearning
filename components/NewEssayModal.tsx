@@ -1,36 +1,58 @@
 "use client";
 
-import { useState } from 'react';
-import { CERTIFICATES, getCertificateById, getCertificateDisplayName } from '@/constants/certificates';
+import { useState, type FormEvent } from "react";
+import { CERTIFICATES, getCertificateById, getCertificateDisplayName } from "@/constants/certificates";
 
 interface NewEssayModalProps {
-  onConfirm: (certificateId: string, band: string) => void;
+  onConfirm: (
+    certificateId: string,
+    band: string,
+    contentType: "full" | "outline",
+    outlineLanguage: "vietnamese" | "english"
+  ) => void;
   onCancel: () => void;
 }
+
+const CONTENT_OPTIONS = [
+  {
+    value: "full" as const,
+    title: "Đoạn văn đầy đủ",
+    description: "AI tạo đoạn văn hoàn chỉnh để bạn dịch từ đầu đến cuối",
+  },
+  {
+    value: "outline" as const,
+    title: "Dàn bài (Outline)",
+    description: "AI chỉ gợi ý các ý chính, bạn tự sáng tạo viết theo dàn ý",
+  },
+];
+
+const LANGUAGE_OPTIONS = [
+  { value: "vietnamese" as const, label: "Tiếng Việt" },
+  { value: "english" as const, label: "English" },
+];
 
 export default function NewEssayModal({ onConfirm, onCancel }: NewEssayModalProps) {
   const [certificateId, setCertificateId] = useState("ielts-academic");
   const [band, setBand] = useState("7.0");
+  const [contentType, setContentType] = useState<"full" | "outline">("full");
+  const [outlineLanguage, setOutlineLanguage] = useState<"vietnamese" | "english">("vietnamese");
 
   const selectedCert = getCertificateById(certificateId);
   const target = selectedCert ? getCertificateDisplayName(certificateId, band) : "";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    onConfirm(certificateId, band);
+    onConfirm(certificateId, band, contentType, outlineLanguage);
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 sm:p-6">
       <div className="bg-[#131823] rounded-lg border border-gray-800 p-4 sm:p-6 w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar">
         <h2 className="text-lg sm:text-xl font-bold text-text-light mb-4 sm:mb-6">Create New Essay</h2>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-          {/* Certificate Selection */}
           <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
-              Select Certificate
-            </label>
+            <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">Select Certificate</label>
             <div className="relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[18px] sm:text-[20px] pointer-events-none">
                 school
@@ -60,12 +82,9 @@ export default function NewEssayModal({ onConfirm, onCancel }: NewEssayModalProp
             </div>
           </div>
 
-          {/* Band Selection */}
           {selectedCert && (
             <div>
-              <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
-                Target Band/Score
-              </label>
+              <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">Target Band/Score</label>
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[18px] sm:text-[20px] pointer-events-none">
                   trending_up
@@ -94,7 +113,55 @@ export default function NewEssayModal({ onConfirm, onCancel }: NewEssayModalProp
             </div>
           )}
 
-          {/* Actions */}
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">Chọn dạng bài viết</label>
+            <div className="space-y-2">
+              {CONTENT_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-start gap-3 p-3 bg-card-dark border border-gray-700 rounded cursor-pointer hover:border-gray-600 transition-colors"
+                >
+                  <input
+                    type="radio"
+                    name="contentType"
+                    value={option.value}
+                    checked={contentType === option.value}
+                    onChange={(e) => setContentType(e.target.value as "full" | "outline")}
+                    className="w-4 h-4 mt-0.5 text-primary bg-gray-700 border-gray-600 focus:ring-primary focus:ring-2"
+                  />
+                  <div className="flex-1">
+                    <div className="text-xs sm:text-sm text-gray-200 font-medium">{option.title}</div>
+                    <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{option.description}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
+              Ngôn ngữ {contentType === "full" ? "đoạn văn" : "dàn ý"}
+            </label>
+            <div className="space-y-2">
+              {LANGUAGE_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-center gap-2 p-3 bg-card-dark border border-gray-700 rounded cursor-pointer hover:border-gray-600 transition-colors"
+                >
+                  <input
+                    type="radio"
+                    name="outlineLanguage"
+                    value={option.value}
+                    checked={outlineLanguage === option.value}
+                    onChange={(e) => setOutlineLanguage(e.target.value as "vietnamese" | "english")}
+                    className="w-4 h-4 text-primary bg-gray-700 border-gray-600 focus:ring-primary focus:ring-2"
+                  />
+                  <span className="text-xs sm:text-sm text-gray-200">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div className="flex gap-2 sm:gap-3 pt-3 sm:pt-4">
             <button
               type="button"
@@ -115,4 +182,3 @@ export default function NewEssayModal({ onConfirm, onCancel }: NewEssayModalProp
     </div>
   );
 }
-
