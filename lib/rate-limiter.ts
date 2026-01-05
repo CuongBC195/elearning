@@ -28,20 +28,20 @@ const suspiciousIPs = new Set<string>();
 
 // Configuration - relaxed for dev, strict for production
 const CONFIG = {
-  // Rate limits per minute (more relaxed in dev)
-  REQUESTS_PER_MINUTE: isDevelopment ? 30 : 10,
-  REQUESTS_PER_HOUR: isDevelopment ? 500 : 100,
+  // Rate limits per minute (more relaxed)
+  REQUESTS_PER_MINUTE: isDevelopment ? 50 : 20,  // 20 requests/minute in production
+  REQUESTS_PER_HOUR: isDevelopment ? 500 : 200,
   
-  // Block duration (shorter in dev)
-  BLOCK_DURATION_MS: isDevelopment ? 30 * 1000 : 5 * 60 * 1000,  // 30s dev, 5min prod
+  // Block duration (shorter)
+  BLOCK_DURATION_MS: isDevelopment ? 30 * 1000 : 2 * 60 * 1000,  // 30s dev, 2min prod
   PERMANENT_BLOCK_THRESHOLD: 5,
   
-  // Request validation (disabled min interval in dev)
-  MIN_REQUEST_INTERVAL_MS: isDevelopment ? 500 : 2000,  // 0.5s dev, 2s prod
+  // Request validation (not used anymore for interval check)
+  MIN_REQUEST_INTERVAL_MS: 0,  // Disabled - only check total count
   MAX_CONTENT_LENGTH: 10000,
   
   // Suspicious behavior detection
-  BURST_THRESHOLD: isDevelopment ? 15 : 5,
+  BURST_THRESHOLD: isDevelopment ? 20 : 10,  // More lenient
   BURST_WINDOW_MS: 10000,
   
   // Cleanup
@@ -185,16 +185,6 @@ export function checkRateLimit(clientId: string): {
       entry.count = 0;
       entry.firstRequest = now;
     }
-  }
-  
-  // Check minimum interval between requests
-  const timeSinceLastRequest = now - entry.lastRequest;
-  if (timeSinceLastRequest < CONFIG.MIN_REQUEST_INTERVAL_MS) {
-    return {
-      allowed: false,
-      reason: 'Vui lòng đợi 2 giây giữa các lần gửi.',
-      retryAfter: Math.ceil((CONFIG.MIN_REQUEST_INTERVAL_MS - timeSinceLastRequest) / 1000),
-    };
   }
   
   // Reset counter if window expired (1 minute)
