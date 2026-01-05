@@ -65,4 +65,4 @@ export interface SavedEssay {
   template?: string; // Optional: sample essay content
   contentType?: "full" | "outline"; // Type of content
   outlineLanguage?: "vietnamese" | "english"; // Language of the content
-
+}
