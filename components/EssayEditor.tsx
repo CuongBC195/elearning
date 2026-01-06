@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion } from '@/types';
+import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion, SectionFeedback } from '@/types';
 
 interface EssayEditorProps {
   certificateId: string;
@@ -16,6 +16,7 @@ interface EssayEditorProps {
 export default function EssayEditor({ certificateId, band, target, essayId, contentType, outlineLanguage, onQuit }: EssayEditorProps) {
   const [essayData, setEssayData] = useState<EssayData | null>(null);
   const [currentText, setCurrentText] = useState("");
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0); // Index của section đang viết
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [feedback, setFeedback] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -28,17 +29,76 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   const [summary, setSummary] = useState<EssaySummary | null>(null);
   const [allFeedbacks, setAllFeedbacks] = useState<AnalysisResult[]>([]); // Lưu tất cả feedback để tổng kết
   const [isCompleted, setIsCompleted] = useState(false); // Đánh dấu bài đã hoàn thành
+  const [sectionContents, setSectionContents] = useState<{ [sectionId: string]: string }>({}); // Nội dung từng section
+  const [sectionFeedbacks, setSectionFeedbacks] = useState<{ [sectionId: string]: SectionFeedback }>({}); // Feedback từng section
+  const [expandedErrorIndex, setExpandedErrorIndex] = useState<number | null>(null); // Track lỗi đang expand
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const lastAnalyzedLength = useRef(0);
+  const lastAnalyzedContent = useRef<{ [sectionId: string]: string }>({}); // Track content đã analyze cho từng section
   const isLoadingTopicRef = useRef(false); // Prevent duplicate topic loading
 
+  // Helper: Lấy current section
+  const getCurrentSection = () => {
+    if (!essayData || essayData.sections.length === 0) return null;
+    return essayData.sections[currentSectionIndex] || essayData.sections[0];
+  };
+
+  // Helper: Lấy text của current section
+  const getCurrentSectionText = () => {
+    const section = getCurrentSection();
+    if (!section) return "";
+    return sectionContents[section.id] || "";
+  };
+
+  // Helper: Set text cho current section
+  const setCurrentSectionText = (text: string) => {
+    const section = getCurrentSection();
+    if (!section) return;
+    setSectionContents(prev => ({
+      ...prev,
+      [section.id]: text
+    }));
+    // Cập nhật currentText = tổng tất cả sections
+    updateTotalContent(section.id, text);
+  };
+
+  // Helper: Cập nhật tổng nội dung từ tất cả sections
+  const updateTotalContent = (updatedSectionId: string, newText: string) => {
+    if (!essayData) return;
+    const allContents = essayData.sections.map(s => {
+      if (s.id === updatedSectionId) return newText;
+      return sectionContents[s.id] || "";
+    }).filter(t => t.trim()).join("\n\n");
+    setCurrentText(allContents);
+  };
+
+  // Helper: Tính total errors từ tất cả section feedbacks
+  const getTotalErrors = (): { grammar: number; vocabulary: number; total: number; allSuggestions: AnalysisSuggestion[] } => {
+    let grammar = 0;
+    let vocabulary = 0;
+    const allSuggestions: AnalysisSuggestion[] = [];
+    
+    Object.values(sectionFeedbacks).forEach(sf => {
+      sf.suggestions.forEach(s => {
+        allSuggestions.push(s);
+        const reason = s.reason?.toLowerCase() || "";
+        if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ") || reason.includes("tense") || reason.includes("verb") || reason.includes("subject")) {
+          grammar++;
+        } else {
+          vocabulary++;
+        }
+      });
+    });
+    
+    return { grammar, vocabulary, total: grammar + vocabulary, allSuggestions };
+  };
+
   // Save essay to localStorage (persistent storage - lưu lâu dài)
-  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult, contentTyp?: "full" | "outline", outlineLang?: "vietnamese" | "english") => {
+  const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult, contentTyp?: "full" | "outline", outlineLang?: "vietnamese" | "english", secContents?: { [sectionId: string]: string }, secFeedbacks?: { [sectionId: string]: SectionFeedback }) => {
     const savedEssays = localStorage.getItem('saved_essays');
     let essays: SavedEssay[] = savedEssays ? JSON.parse(savedEssays) : [];
     
     const essayIndex = essays.findIndex(e => e.id === id);
-    const essayData: SavedEssay = {
+    const essayDataToSave: SavedEssay = {
       id,
       title: data.title,
       certificateId,
@@ -47,6 +107,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       createdAt: essayIndex >= 0 ? essays[essayIndex].createdAt : Date.now(),
       updatedAt: Date.now(),
       content,
+      sectionContents: secContents !== undefined ? secContents : (essayIndex >= 0 ? essays[essayIndex].sectionContents : {}),
+      sectionFeedbacks: secFeedbacks !== undefined ? secFeedbacks : (essayIndex >= 0 ? essays[essayIndex].sectionFeedbacks : {}),
       essayData: data,
       notes: notesToSave !== undefined ? notesToSave : (essayIndex >= 0 ? essays[essayIndex].notes : ""),
       summary: summaryToSave !== undefined ? summaryToSave : (essayIndex >= 0 ? essays[essayIndex].summary : undefined),
@@ -56,9 +118,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     };
 
     if (essayIndex >= 0) {
-      essays[essayIndex] = essayData;
+      essays[essayIndex] = essayDataToSave;
     } else {
-      essays.push(essayData);
+      essays.push(essayDataToSave);
     }
 
     localStorage.setItem('saved_essays', JSON.stringify(essays));
@@ -80,6 +142,17 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             setCurrentEssayId(essay.id);
             setNotes(essay.notes || "");
             setSummary(essay.summary || null);
+            // Load section contents và feedbacks nếu có
+            if (essay.sectionContents) {
+              setSectionContents(essay.sectionContents);
+            }
+            if (essay.sectionFeedbacks) {
+              setSectionFeedbacks(essay.sectionFeedbacks);
+              // Cập nhật lastAnalyzedContent
+              Object.entries(essay.sectionFeedbacks).forEach(([sectionId, sf]) => {
+                lastAnalyzedContent.current[sectionId] = sf.lastAnalyzedContent;
+              });
+            }
             // Load feedback cuối cùng nếu có
             if (essay.finalFeedback) {
               setFeedback(essay.finalFeedback);
@@ -98,7 +171,6 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             setIsCompleted(progress >= 100);
             setCurrentSentenceIndex(userSentences.length);
             setAllFeedbacks([]);
-            lastAnalyzedLength.current = essay.content.length;
             setIsLoadingTopic(false);
             return; // Đã load xong, không cần làm gì thêm
           }
@@ -161,10 +233,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
         saveEssayToStorage(newEssayId, newEssayData, "", undefined, undefined, undefined, contentType || "full", outlineLanguage || "vietnamese");
 
         setCurrentText("");
+        setSectionContents({});
+        setSectionFeedbacks({});
         setFeedback(null);
         setAccuracy(0);
         setCurrentSentenceIndex(0);
-        lastAnalyzedLength.current = 0;
+        lastAnalyzedContent.current = {};
         console.log("✓ Topic loaded successfully, essayId:", newEssayId);
       } catch (error: any) {
         console.error("Error loading topic:", error);
@@ -180,16 +254,27 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
 
   // Auto-save khi text thay đổi
   useEffect(() => {
-    if (currentEssayId && essayData && currentText.length >= 0) {
+    if (currentEssayId && essayData) {
       const timeoutId = setTimeout(() => {
         // Lấy finalFeedback từ state nếu có
         const finalFeedbackToSave = feedback || undefined;
-        saveEssayToStorage(currentEssayId, essayData, currentText, notes, summary || undefined, finalFeedbackToSave, undefined, outlineLanguage || "vietnamese");
+        saveEssayToStorage(
+          currentEssayId, 
+          essayData, 
+          currentText, 
+          notes, 
+          summary || undefined, 
+          finalFeedbackToSave, 
+          undefined, 
+          outlineLanguage || "vietnamese",
+          sectionContents,
+          sectionFeedbacks
+        );
       }, 1000); // Debounce 1 second
 
       return () => clearTimeout(timeoutId);
     }
-  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary, feedback, outlineLanguage]);
+  }, [currentText, currentEssayId, essayData, certificateId, band, target, notes, summary, feedback, outlineLanguage, sectionContents, sectionFeedbacks]);
 
   // Kiểm tra progress và đánh dấu hoàn thành
   useEffect(() => {
@@ -202,78 +287,92 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     }
   }, [currentText, essayData, isCompleted]);
 
-  // Auto-analyze sau mỗi câu (sau dấu chấm) - với debounce để tránh gọi quá nhiều
-  // KHÔNG gửi request nếu bài đã hoàn thành (100%)
+  // Auto-analyze CHỈ PHẦN MỚI của toàn bộ text
   useEffect(() => {
-    if (!currentText || !essayData || isAnalyzing || isCompleted) return; // Thêm check isCompleted
+    if (!essayData || isAnalyzing || isCompleted || !currentText.trim()) return;
 
-    // Tìm tất cả các câu đã hoàn thành (kết thúc bằng . ! ?)
-    const sentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
+    // Lấy phần text đã analyze lần cuối
+    const lastAnalyzed = lastAnalyzedContent.current['_global'] || "";
     
-    // Nếu có câu mới được hoàn thành
-    if (sentences.length > currentSentenceIndex) {
-      const lastSentence = sentences[sentences.length - 1];
-      const newLength = currentText.length;
-      
-      // Chỉ analyze nếu có thay đổi đáng kể và đã đợi một chút (debounce)
-      if (newLength > lastAnalyzedLength.current + 10) {
-        // Debounce: đợi 1.5 giây sau khi user ngừng gõ
-        const timeoutId = setTimeout(() => {
-          // Kiểm tra lại xem có còn là câu mới nhất không và chưa hoàn thành
-          const currentSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
-          if (currentSentences.length === sentences.length && !isCompleted) {
-            analyzeCurrentText(lastSentence.trim());
-            lastAnalyzedLength.current = newLength;
-          }
-        }, 1500); // Debounce 1.5 giây
+    // Kiểm tra xem có text mới chưa được analyze không
+    if (currentText.length <= lastAnalyzed.length) return;
+    
+    // Tìm phần text mới (chỉ analyze phần chưa analyze)
+    const newText = currentText.slice(lastAnalyzed.length).trim();
+    
+    // Chỉ analyze khi có câu hoàn chỉnh mới (kết thúc bằng . ! ?)
+    const newSentences = newText.match(/[^.!?]*[.!?]+/g) || [];
+    if (newSentences.length === 0) return;
 
-        return () => clearTimeout(timeoutId);
-      }
-    }
-  }, [currentText, essayData, currentSentenceIndex, isAnalyzing, isCompleted]);
+    // Debounce: đợi 1.5 giây sau khi user ngừng gõ
+    const timeoutId = setTimeout(() => {
+      // Chỉ analyze phần mới
+      analyzeNewContent('_global', newText, essayData.sections.map(s => s.vn).join(" "));
+    }, 1500);
 
-  const analyzeCurrentText = async (textToAnalyze: string) => {
-    if (!textToAnalyze || !essayData || isAnalyzing) return;
+    return () => clearTimeout(timeoutId);
+  }, [currentText, essayData, isAnalyzing, isCompleted]);
+
+  // Analyze CHỈ PHẦN MỚI của text
+  const analyzeNewContent = async (sectionId: string, newText: string, sectionVn: string) => {
+    if (!newText.trim() || !essayData || isAnalyzing) return;
 
     setIsAnalyzing(true);
     try {
-      // Lấy phần tiếng Việt tương ứng (các sentences đầu tiên)
-      const allVnText = essayData.sections.map(s => s.vn).join(" ");
-      const sentences = textToAnalyze.match(/[^.!?]*[.!?]+/g) || [];
-      const currentSentenceCount = sentences.length;
-      
-      // Estimate phần tiếng Việt tương ứng (đơn giản hóa)
-      const estimatedVnText = allVnText;
-
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          userEn: textToAnalyze, 
-          sourceVn: estimatedVnText, 
+          userEn: newText, 
+          sourceVn: sectionVn, 
           target 
         })
       });
 
       if (res.ok) {
-        const data = await res.json();
+        const data: AnalysisResult = await res.json();
         setFeedback(data);
         setAccuracy(data.accuracy || 0);
-        setCurrentSentenceIndex(sentences.length);
-        // Lưu feedback vào danh sách để tổng kết sau
+        
+        // Cập nhật lastAnalyzedContent với currentText hiện tại
+        lastAnalyzedContent.current[sectionId] = currentText;
+        
+        // Lưu feedback (MERGE với feedback cũ, không thay thế)
+        setSectionFeedbacks(prev => {
+          const existingFeedback = prev[sectionId];
+          const existingSuggestions = existingFeedback?.suggestions || [];
+          
+          // Thêm sectionId vào mỗi suggestion mới để track nguồn gốc
+          const newSuggestions = (data.suggestions || []).map(s => ({
+            ...s,
+            sectionId
+          }));
+          
+          return {
+            ...prev,
+            [sectionId]: {
+              sectionId,
+              content: currentText,
+              lastAnalyzedContent: currentText,
+              feedback: data,
+              suggestions: [...existingSuggestions, ...newSuggestions], // MERGE - giữ lại errors cũ
+              analyzedAt: Date.now()
+            }
+          };
+        });
+        
+        // Cũng lưu vào allFeedbacks để backward compatible
         setAllFeedbacks(prev => [...prev, data]);
       } else {
         const errorData = await res.json();
-        // Handle quota error silently for auto-analysis
         if (errorData.type === "QUOTA_EXCEEDED") {
           console.warn("Quota exceeded - auto-analysis skipped");
         }
       }
     } catch (error: any) {
       console.error("Analysis error:", error);
-      // Silent fail for auto-analysis
     } finally {
       setIsAnalyzing(false);
     }
@@ -326,8 +425,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       const updatedFeedbacks = [...allFeedbacks, data];
       setAllFeedbacks(updatedFeedbacks);
       
-      // Tạo summary từ tất cả feedback
-      const newSummary = createSummary(updatedFeedbacks, data.accuracy);
+      // Tạo summary từ TẤT CẢ section feedbacks (không phải từ allFeedbacks)
+      const newSummary = createSummaryFromSections();
       setSummary(newSummary);
       
       // Đánh dấu bài đã hoàn thành nếu progress = 100%
@@ -338,7 +437,18 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       
       // Lưu summary và finalFeedback vào storage
       if (currentEssayId && essayData) {
-        saveEssayToStorage(currentEssayId, essayData, currentText, notes, newSummary, data);
+        saveEssayToStorage(
+          currentEssayId, 
+          essayData, 
+          currentText, 
+          notes, 
+          newSummary, 
+          data,
+          undefined,
+          undefined,
+          sectionContents,
+          sectionFeedbacks
+        );
       }
     } catch (error: any) {
       console.error("Analysis error:", error);
@@ -361,19 +471,56 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     return progress;
   };
 
-  // Tạo summary từ tất cả feedback - lưu toàn bộ suggestions với reason chi tiết
+  // Tạo summary từ TẤT CẢ section feedbacks - đảm bảo không mất dữ liệu khi chuyển section
+  const createSummaryFromSections = (): EssaySummary => {
+    const { grammar, vocabulary, total, allSuggestions } = getTotalErrors();
+    
+    const grammarMistakes: string[] = [];
+    const vocabIssues: string[] = [];
+    
+    allSuggestions.forEach(s => {
+      const reason = s.reason?.toLowerCase() || "";
+      if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ") || reason.includes("tense") || reason.includes("verb") || reason.includes("subject")) {
+        if (!grammarMistakes.includes(s.error)) {
+          grammarMistakes.push(s.error);
+        }
+      } else {
+        if (!vocabIssues.includes(s.error)) {
+          vocabIssues.push(s.error);
+        }
+      }
+    });
+
+    return {
+      grammarErrors: grammar,
+      vocabularyErrors: vocabulary,
+      totalErrors: total,
+      commonGrammarMistakes: grammarMistakes.slice(0, 5),
+      commonVocabularyIssues: vocabIssues.slice(0, 5),
+      allSuggestions,
+      accuracy: accuracy,
+      completedAt: Date.now()
+    };
+  };
+
+  // Legacy: Tạo summary từ allFeedbacks (backward compatible)
   const createSummary = (feedbacks: AnalysisResult[], finalAccuracy: number): EssaySummary => {
+    // Ưu tiên dùng section feedbacks nếu có
+    if (Object.keys(sectionFeedbacks).length > 0) {
+      return createSummaryFromSections();
+    }
+    
+    // Fallback: dùng allFeedbacks
     const grammarErrors: string[] = [];
     const vocabularyIssues: string[] = [];
-    const allSuggestions: AnalysisSuggestion[] = []; // Lưu toàn bộ suggestions
+    const allSuggestions: AnalysisSuggestion[] = [];
     let totalErrors = 0;
 
     feedbacks.forEach(fb => {
       if (fb.suggestions) {
         fb.suggestions.forEach(s => {
           totalErrors++;
-          allSuggestions.push(s); // Lưu toàn bộ suggestion với reason
-          // Phân loại lỗi dựa trên reason
+          allSuggestions.push(s);
           const reason = s.reason?.toLowerCase() || "";
           if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ")) {
             if (!grammarErrors.includes(s.error)) {
@@ -392,9 +539,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       grammarErrors: grammarErrors.length,
       vocabularyErrors: vocabularyIssues.length,
       totalErrors,
-      commonGrammarMistakes: grammarErrors.slice(0, 5), // Top 5 lỗi ngữ pháp
-      commonVocabularyIssues: vocabularyIssues.slice(0, 5), // Top 5 lỗi từ vựng
-      allSuggestions, // Lưu toàn bộ suggestions với reason chi tiết
+      commonGrammarMistakes: grammarErrors.slice(0, 5),
+      commonVocabularyIssues: vocabularyIssues.slice(0, 5),
+      allSuggestions,
       accuracy: finalAccuracy,
       completedAt: Date.now()
     };
@@ -688,21 +835,107 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
-          {/* Summary & Accuracy */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
-              <div className="relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border-2 border-green-500 text-green-500 mb-1">
-                <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-green-500 rounded-full"></div>
-              </div>
-              <span className="text-xs sm:text-sm font-bold text-gray-200">{accuracy.toFixed(0)}%</span>
-              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Accuracy</span>
-            </div>
-            <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
-              <span className="material-symbols-outlined text-[20px] sm:text-[24px] text-primary">check_circle</span>
-              <span className="text-xs sm:text-sm font-bold text-gray-200">{summary?.totalErrors || 0}</span>
-              <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Total Errors</span>
-            </div>
-          </div>
+          {/* Summary & Accuracy - Sử dụng getTotalErrors() để đếm real-time */}
+          {(() => {
+            const errorStats = getTotalErrors();
+            return (
+              <>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
+                    <div className="relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border-2 border-green-500 text-green-500 mb-1">
+                      <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-green-500 rounded-full"></div>
+                    </div>
+                    <span className="text-xs sm:text-sm font-bold text-gray-200">{accuracy.toFixed(0)}%</span>
+                    <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Accuracy</span>
+                  </div>
+                  <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
+                    <span className="material-symbols-outlined text-[20px] sm:text-[24px] text-primary">check_circle</span>
+                    <span className="text-xs sm:text-sm font-bold text-gray-200">{errorStats.total}</span>
+                    <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Total Errors</span>
+                  </div>
+                </div>
+
+                {/* Real-time Error Stats by Type */}
+                {errorStats.total > 0 && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-[#1a212e] rounded p-2 border border-gray-700">
+                      <p className="text-[10px] text-gray-400">Grammar</p>
+                      <p className="text-sm font-bold text-red-400">{errorStats.grammar}</p>
+                    </div>
+                    <div className="bg-[#1a212e] rounded p-2 border border-gray-700">
+                      <p className="text-[10px] text-gray-400">Vocabulary</p>
+                      <p className="text-sm font-bold text-orange-400">{errorStats.vocabulary}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Errors - Hiển thị lỗi đã phát hiện */}
+                {(() => {
+                  const globalFeedback = sectionFeedbacks['_global'];
+                  if (!globalFeedback || globalFeedback.suggestions.length === 0) return null;
+                  
+                  // Hiển thị tất cả lỗi, lỗi cũ ở trên, lỗi mới ở dưới
+                  const displayedErrors = globalFeedback.suggestions;
+                  
+                  return (
+                    <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
+                      <p className="text-xs text-gray-400 mb-2">
+                        Lỗi đã phát hiện ({globalFeedback.suggestions.length})
+                      </p>
+                      <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                        {displayedErrors.map((s, i) => {
+                          const isExpanded = expandedErrorIndex === i;
+                          const isGrammar = s.reason?.toLowerCase().includes("ngữ pháp") || 
+                                           s.reason?.toLowerCase().includes("grammar") ||
+                                           s.reason?.toLowerCase().includes("cấu trúc") ||
+                                           s.reason?.toLowerCase().includes("động từ") ||
+                                           s.reason?.toLowerCase().includes("mạo từ");
+                          
+                          return (
+                            <li 
+                              key={i} 
+                              className={`text-xs text-gray-300 p-2 bg-[#1a212e] rounded border cursor-pointer transition-all duration-200 hover:border-gray-600 ${
+                                isExpanded ? 'border-primary/50 bg-[#1a212e]/80' : 'border-gray-700'
+                              }`}
+                              onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
+                            >
+                              <div className="flex items-start gap-2">
+                                <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span className="line-through text-red-400 truncate">{s.error}</span>
+                                    <span className="text-gray-500">→</span>
+                                    <span className="text-primary font-medium truncate">{s.fix}</span>
+                                    <svg 
+                                      className={`w-3 h-3 text-gray-500 flex-none ml-auto transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
+                                      fill="none" 
+                                      stroke="currentColor" 
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </div>
+                                  
+                                  {/* Expanded content */}
+                                  {isExpanded && s.reason && (
+                                    <div className="mt-2 pt-2 border-t border-gray-700">
+                                      <p className="text-[11px] text-gray-400 leading-relaxed whitespace-normal">
+                                        {s.reason}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })()}
+              </>
+            );
+          })()}
 
           {/* Summary Section - Hiển thị khi đã submit */}
           {summary && summary.completedAt && (
@@ -744,6 +977,11 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                               )}
                               {suggestion.reason && (
                                 <p className="text-[10px] sm:text-xs text-gray-400 leading-relaxed">{suggestion.reason}</p>
+                              )}
+                              {suggestion.sectionId && (
+                                <p className="text-[9px] text-gray-500">
+                                  Section: {essayData?.sections.find(s => s.id === suggestion.sectionId)?.label || suggestion.sectionId}
+                                </p>
                               )}
                             </div>
                           </li>

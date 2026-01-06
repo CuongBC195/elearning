@@ -13,6 +13,7 @@ export interface AnalysisSuggestion {
   error: string;
   fix: string;
   reason: string;
+  sectionId?: string; // ID của section chứa lỗi này
 }
 
 export interface AnalysisResult {
@@ -38,6 +39,16 @@ export interface GeneratedTopic {
   instructions?: string;
 }
 
+// Feedback cho từng section riêng biệt
+export interface SectionFeedback {
+  sectionId: string;
+  content: string; // Text user đã viết cho section này
+  lastAnalyzedContent: string; // Text đã analyze lần cuối (để so sánh có cần analyze lại không)
+  feedback: AnalysisResult | null;
+  suggestions: AnalysisSuggestion[];
+  analyzedAt?: number; // Timestamp lần analyze cuối
+}
+
 export interface EssaySummary {
   grammarErrors: number;
   vocabularyErrors: number;
@@ -57,7 +68,9 @@ export interface SavedEssay {
   target: string;
   createdAt: number;
   updatedAt: number;
-  content: string; // User's English translation
+  content: string; // User's English translation (toàn bộ bài)
+  sectionContents?: { [sectionId: string]: string }; // Nội dung từng section riêng
+  sectionFeedbacks?: { [sectionId: string]: SectionFeedback }; // Feedback từng section
   essayData: EssayData; // Original Vietnamese sections
   notes?: string; // User's personal notes
   summary?: EssaySummary; // Summary of errors and completion
