@@ -71,7 +71,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
           <div className="flex items-center gap-2">
             <Link
               href="/flashcard"
-              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs sm:text-sm font-bold transition-all flex-shrink-0"
+              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors flex-shrink-0"
             >
               <span className="material-symbols-outlined text-[16px] sm:text-[18px]">style</span>
               <span className="hidden sm:inline">Flashcard</span>
