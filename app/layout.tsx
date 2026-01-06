@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ToastProvider } from "@/components/Toast";
 
 export const metadata: Metadata = {
   title: "3DO Learning Writing",
@@ -28,9 +29,10 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-background-dark text-text-light font-display antialiased overflow-hidden h-screen flex flex-col selection:bg-primary/30">
-        {children}
+        <ToastProvider>
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );
 }
-

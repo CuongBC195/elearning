@@ -113,5 +113,44 @@ export const DEFAULT_FLASHCARD_SETTINGS: FlashcardSettings = {
     shuffleCards: true,
 };
 
-// localStorage key
+// localStorage keys
 export const FLASHCARD_STORAGE_KEY = "flashcard_progress";
+export const CUSTOM_VOCABULARY_KEY = "custom_vocabulary";
+export const ESSAYS_STORAGE_KEY = "saved_essays";
+
+// Custom vocabulary word (user-created)
+export interface CustomVocabularyWord {
+    id: string;
+    word: string;
+    meaning: string;
+    pronunciation?: string;
+    partOfSpeech: PartOfSpeech;
+    example?: string;
+    exampleTranslation?: string;
+    synonyms?: Synonym[];
+    difficulty: DifficultyLevel;
+    tips?: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+// Export data structure
+export interface ExportData {
+    version: string;
+    exportedAt: string;
+    customVocabulary: CustomVocabularyWord[];
+    flashcardProgress: FlashcardStorage | null;
+    essays: any[]; // SavedEssay[] from main types
+}
+
+// Import validation result
+export interface ImportValidation {
+    isValid: boolean;
+    errors: string[];
+    data: ExportData | null;
+    summary: {
+        customVocabularyCount: number;
+        hasProgress: boolean;
+        essayCount: number;
+    };
+}

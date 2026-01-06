@@ -8,6 +8,7 @@ import { VocabularyWord, FlashcardTopic } from "@/types/flashcard";
 import FlashcardViewer from "@/components/FlashcardViewer";
 import FlashcardQuiz from "@/components/FlashcardQuiz";
 import FlashcardProgress from "@/components/FlashcardProgress";
+import { getCustomVocabulary, convertToVocabularyWord } from "@/lib/custom-vocabulary";
 
 type StudyMode = "select" | "learn" | "quiz";
 
@@ -23,12 +24,32 @@ export default function TopicStudyPage() {
 
     useEffect(() => {
         if (topicId) {
-            const foundTopic = getTopicById(topicId);
-            if (foundTopic) {
-                setTopic(foundTopic);
-                setWords(getVocabularyByTopic(topicId));
+            // Handle custom vocabulary topic
+            if (topicId === "custom") {
+                const customWords = getCustomVocabulary();
+                if (customWords.length === 0) {
+                    router.push("/flashcard");
+                    return;
+                }
+                setTopic({
+                    id: "custom",
+                    name: "My Vocabulary",
+                    nameVi: "Từ của tôi",
+                    description: "Từ vựng bạn tự thêm",
+                    icon: "edit_note",
+                    color: "from-pink-500 to-rose-400",
+                    wordCount: customWords.length,
+                });
+                setWords(customWords.map(convertToVocabularyWord));
             } else {
-                router.push("/flashcard");
+                // Handle regular topics
+                const foundTopic = getTopicById(topicId);
+                if (foundTopic) {
+                    setTopic(foundTopic);
+                    setWords(getVocabularyByTopic(topicId));
+                } else {
+                    router.push("/flashcard");
+                }
             }
         }
     }, [topicId, router]);
@@ -157,8 +178,8 @@ export default function TopicStudyPage() {
                                                             setQuizQuestionCount(count);
                                                         }}
                                                         className={`px-2 py-0.5 text-xs rounded ${quizQuestionCount === count
-                                                                ? "bg-green-600 text-white"
-                                                                : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                                                            ? "bg-green-600 text-white"
+                                                            : "bg-gray-700 text-gray-400 hover:bg-gray-600"
                                                             }`}
                                                     >
                                                         {count}

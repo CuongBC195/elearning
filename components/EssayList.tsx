@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { SavedEssay } from '@/types';
 import { CERTIFICATES, getCertificateDisplayName } from '@/constants/certificates';
+import UserCounter from './UserCounter';
 
 interface EssayListProps {
   onSelectEssay: (essay: SavedEssay) => void;
@@ -90,7 +91,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-bold text-text-light mb-4 sm:mb-6">My Essays</h2>
 
           {essays.length === 0 ? (
@@ -150,7 +151,16 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
           )}
         </div>
       </main>
+
+      {/* Footer with User Counter */}
+      <footer className="flex-none px-4 sm:px-6 py-3 border-t border-gray-800/50 bg-background-dark/50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <p className="text-xs text-gray-600">
+            © 2024 3DO Learning
+          </p>
+          <UserCounter />
+        </div>
+      </footer>
     </div>
   );
 }
-
