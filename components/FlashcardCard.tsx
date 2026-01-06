@@ -9,6 +9,10 @@ interface FlashcardCardProps {
     showExample?: boolean;
     onMarkKnown?: () => void;
     onMarkUnknown?: () => void;
+    onPrevious?: () => void;
+    onNext?: () => void;
+    canGoPrevious?: boolean;
+    canGoNext?: boolean;
     isFlipped?: boolean;
     onFlip?: () => void;
 }
@@ -50,6 +54,10 @@ export default function FlashcardCard({
     showExample = true,
     onMarkKnown,
     onMarkUnknown,
+    onPrevious,
+    onNext,
+    canGoPrevious = true,
+    canGoNext = true,
     isFlipped: controlledFlipped,
     onFlip,
 }: FlashcardCardProps) {
@@ -187,9 +195,47 @@ export default function FlashcardCard({
                 </div>
             </div>
 
+            {/* Navigation buttons */}
+            {(onPrevious || onNext) && (
+                <div className="flex justify-center items-center gap-4 mt-6">
+                    {onPrevious && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onPrevious();
+                            }}
+                            disabled={!canGoPrevious}
+                            className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-colors ${canGoPrevious
+                                    ? 'bg-gray-700/50 hover:bg-gray-700 text-gray-300'
+                                    : 'bg-gray-800/30 text-gray-600 cursor-not-allowed'
+                                }`}
+                        >
+                            <span className="material-symbols-outlined">arrow_back</span>
+                            Trước
+                        </button>
+                    )}
+                    {onNext && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onNext();
+                            }}
+                            disabled={!canGoNext}
+                            className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-colors ${canGoNext
+                                    ? 'bg-gray-700/50 hover:bg-gray-700 text-gray-300'
+                                    : 'bg-gray-800/30 text-gray-600 cursor-not-allowed'
+                                }`}
+                        >
+                            Sau
+                            <span className="material-symbols-outlined">arrow_forward</span>
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Action buttons */}
             {(onMarkKnown || onMarkUnknown) && (
-                <div className="flex justify-center gap-4 mt-6">
+                <div className="flex justify-center gap-4 mt-4">
                     {onMarkUnknown && (
                         <button
                             onClick={(e) => {

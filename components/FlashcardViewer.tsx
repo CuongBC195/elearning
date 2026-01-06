@@ -185,20 +185,31 @@ export default function FlashcardViewer({
                     setIsFlipped((prev) => !prev);
                     break;
                 case "ArrowRight":
-                    if (isFlipped) handleMarkKnown();
+                    e.preventDefault();
+                    handleMarkKnown();
                     break;
                 case "ArrowLeft":
-                    if (isFlipped) handleMarkUnknown();
+                    e.preventDefault();
+                    handleMarkUnknown();
                     break;
                 case "ArrowUp":
+                    e.preventDefault();
                     goToPrevious();
+                    break;
+                case "ArrowDown":
+                    e.preventDefault();
+                    // Go to next without marking
+                    if (currentIndex < shuffledWords.length - 1) {
+                        setIsFlipped(false);
+                        setCurrentIndex(prev => prev + 1);
+                    }
                     break;
             }
         };
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [currentIndex, isFlipped, isCompleted, shuffledWords]);
+    }, [currentIndex, isCompleted, shuffledWords.length]);
 
     if (shuffledWords.length === 0) {
         return (
@@ -354,10 +365,19 @@ export default function FlashcardViewer({
                 onFlip={() => setIsFlipped(!isFlipped)}
                 onMarkKnown={handleMarkKnown}
                 onMarkUnknown={handleMarkUnknown}
+                onPrevious={goToPrevious}
+                onNext={() => {
+                    setIsFlipped(false);
+                    if (currentIndex < shuffledWords.length - 1) {
+                        setCurrentIndex(prev => prev + 1);
+                    }
+                }}
+                canGoPrevious={currentIndex > 0}
+                canGoNext={currentIndex < shuffledWords.length - 1}
             />
 
             {/* Navigation hints */}
-            <div className="mt-6 flex justify-center gap-6 text-xs text-gray-500">
+            <div className="mt-6 flex flex-wrap justify-center gap-4 text-xs text-gray-500">
                 <div className="flex items-center gap-1">
                     <kbd className="px-2 py-1 bg-gray-700 rounded text-gray-300">Space</kbd>
                     <span>Lật thẻ</span>
@@ -369,6 +389,14 @@ export default function FlashcardViewer({
                 <div className="flex items-center gap-1">
                     <kbd className="px-2 py-1 bg-gray-700 rounded text-gray-300">→</kbd>
                     <span>Đã thuộc</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <kbd className="px-2 py-1 bg-gray-700 rounded text-gray-300">↑</kbd>
+                    <span>Thẻ trước</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <kbd className="px-2 py-1 bg-gray-700 rounded text-gray-300">↓</kbd>
+                    <span>Thẻ sau</span>
                 </div>
             </div>
         </div>

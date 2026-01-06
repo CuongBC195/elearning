@@ -8,6 +8,26 @@ interface TopicCardProps {
     onClick?: () => void;
 }
 
+// Map topic.color class to actual CSS gradient for inline styles
+const COLOR_MAP: { [key: string]: { from: string; to: string } } = {
+    "from-blue-500 to-cyan-400": { from: "#3b82f6", to: "#22d3ee" },
+    "from-red-500 to-pink-400": { from: "#ef4444", to: "#f472b6" },
+    "from-purple-500 to-violet-400": { from: "#a855f7", to: "#a78bfa" },
+    "from-amber-500 to-yellow-400": { from: "#f59e0b", to: "#facc15" },
+    "from-green-500 to-emerald-400": { from: "#22c55e", to: "#34d399" },
+    "from-indigo-500 to-blue-400": { from: "#6366f1", to: "#60a5fa" },
+};
+
+function getGradientStyle(colorClass: string): React.CSSProperties {
+    const colors = COLOR_MAP[colorClass];
+    if (colors) {
+        return {
+            background: `linear-gradient(to bottom right, ${colors.from}, ${colors.to})`,
+        };
+    }
+    return {};
+}
+
 export default function TopicCard({ topic, onClick }: TopicCardProps) {
     const [progress, setProgress] = useState({
         masteredWords: 0,
@@ -33,19 +53,23 @@ export default function TopicCard({ topic, onClick }: TopicCardProps) {
         }
     }, [topic.id, topic.wordCount]);
 
+    const gradientStyle = getGradientStyle(topic.color);
+
     return (
         <button
             onClick={onClick}
             className="group relative w-full bg-gradient-to-br from-panel-dark to-card-dark rounded-2xl p-6 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border border-gray-700/50 hover:border-gray-600/50 overflow-hidden"
         >
-            {/* Background gradient overlay */}
+            {/* Background gradient overlay - using inline style for dynamic colors */}
             <div
-                className={`absolute inset-0 bg-gradient-to-br ${topic.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}
+                className="absolute inset-0 opacity-0 group-hover:opacity-40 transition-opacity duration-300"
+                style={gradientStyle}
             />
 
-            {/* Icon */}
+            {/* Icon - using inline style for dynamic colors */}
             <div
-                className={`w-14 h-14 rounded-xl bg-gradient-to-br ${topic.color} flex items-center justify-center mb-4 shadow-lg`}
+                className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 shadow-lg"
+                style={gradientStyle}
             >
                 <span className="material-symbols-outlined text-white text-2xl">
                     {topic.icon}
@@ -76,8 +100,11 @@ export default function TopicCard({ topic, onClick }: TopicCardProps) {
             {/* Progress bar */}
             <div className="mt-3 h-1.5 bg-gray-700 rounded-full overflow-hidden">
                 <div
-                    className={`h-full bg-gradient-to-r ${topic.color} transition-all duration-500`}
-                    style={{ width: `${progress.percentage}%` }}
+                    className="h-full transition-all duration-500"
+                    style={{
+                        width: `${progress.percentage}%`,
+                        ...gradientStyle,
+                    }}
                 />
             </div>
 
