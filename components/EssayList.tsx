@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { SavedEssay } from '@/types';
 import { CERTIFICATES, getCertificateDisplayName } from '@/constants/certificates';
 
@@ -39,7 +40,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
     if (diffMins < 60) return `${diffMins} phút trước`;
     if (diffHours < 24) return `${diffHours} giờ trước`;
     if (diffDays < 7) return `${diffDays} ngày trước`;
-    
+
     return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
@@ -57,9 +58,9 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <div className="size-8 sm:size-10 flex items-center justify-center flex-shrink-0">
-              <img 
-                src="/logo.png" 
-                alt="3DO Learning Logo" 
+              <img
+                src="/logo.png"
+                alt="3DO Learning Logo"
                 className="w-full h-full object-contain"
               />
             </div>
@@ -67,14 +68,23 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
               3DO Learning Writing
             </h1>
           </div>
-          <button
-            onClick={onNewEssay}
-            className="flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors flex-shrink-0"
-          >
-            <span className="material-symbols-outlined text-[16px] sm:text-[18px]">add</span>
-            <span className="hidden sm:inline">New Essay</span>
-            <span className="sm:hidden">New</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/flashcard"
+              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs sm:text-sm font-bold transition-all flex-shrink-0"
+            >
+              <span className="material-symbols-outlined text-[16px] sm:text-[18px]">style</span>
+              <span className="hidden sm:inline">Flashcard</span>
+            </Link>
+            <button
+              onClick={onNewEssay}
+              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors flex-shrink-0"
+            >
+              <span className="material-symbols-outlined text-[16px] sm:text-[18px]">add</span>
+              <span className="hidden sm:inline">New Essay</span>
+              <span className="sm:hidden">New</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -82,7 +92,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
       <main className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-bold text-text-light mb-4 sm:mb-6">My Essays</h2>
-          
+
           {essays.length === 0 ? (
             <div className="text-center py-12 sm:py-20">
               <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gray-800 mb-3 sm:mb-4">
@@ -126,7 +136,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
                       </span>
                     </button>
                   </div>
-                  
+
                   <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-800">
                     <div className="flex items-center justify-between text-[10px] sm:text-xs text-gray-500">
                       <span>{essay.content.length > 0 ? `${essay.content.split(/\s+/).length} words` : "Chưa có nội dung"}</span>

@@ -3,6 +3,53 @@
 import { useState, useEffect, useRef } from 'react';
 import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion, SectionFeedback } from '@/types';
 
+// Client-side throttle: minimum 5 seconds between API calls
+const THROTTLE_MS = 5000;
+
+// Local cache for API responses (32 entries max)
+const LOCAL_CACHE_KEY = 'essay_analysis_cache';
+const MAX_CACHE_ENTRIES = 32;
+
+// Simple hash function for cache key
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36);
+}
+
+// Get cached response from localStorage
+function getLocalCache(key: string): AnalysisResult | null {
+  try {
+    const cached = localStorage.getItem(LOCAL_CACHE_KEY);
+    if (!cached) return null;
+    const cache = JSON.parse(cached);
+    return cache[key] || null;
+  } catch {
+    return null;
+  }
+}
+
+// Set cached response in localStorage
+function setLocalCache(key: string, value: AnalysisResult): void {
+  try {
+    const cached = localStorage.getItem(LOCAL_CACHE_KEY);
+    let cache = cached ? JSON.parse(cached) : {};
+    cache[key] = value;
+    // Limit cache size
+    const keys = Object.keys(cache);
+    if (keys.length > MAX_CACHE_ENTRIES) {
+      delete cache[keys[0]];
+    }
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Ignore cache errors
+  }
+}
+
 interface EssayEditorProps {
   certificateId: string;
   band: string;
@@ -35,6 +82,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedContent = useRef<{ [sectionId: string]: string }>({}); // Track content đã analyze cho từng section
   const isLoadingTopicRef = useRef(false); // Prevent duplicate topic loading
+  const lastRequestTime = useRef<number>(0); // Throttle: track last API call time
 
   // Helper: Lấy current section
   const getCurrentSection = () => {
@@ -76,7 +124,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     let grammar = 0;
     let vocabulary = 0;
     const allSuggestions: AnalysisSuggestion[] = [];
-    
+
     Object.values(sectionFeedbacks).forEach(sf => {
       sf.suggestions.forEach(s => {
         allSuggestions.push(s);
@@ -88,7 +136,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
         }
       });
     });
-    
+
     return { grammar, vocabulary, total: grammar + vocabulary, allSuggestions };
   };
 
@@ -96,7 +144,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult, contentTyp?: "full" | "outline", outlineLang?: "vietnamese" | "english", secContents?: { [sectionId: string]: string }, secFeedbacks?: { [sectionId: string]: SectionFeedback }) => {
     const savedEssays = localStorage.getItem('saved_essays');
     let essays: SavedEssay[] = savedEssays ? JSON.parse(savedEssays) : [];
-    
+
     const essayIndex = essays.findIndex(e => e.id === id);
     const essayDataToSave: SavedEssay = {
       id,
@@ -187,7 +235,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   useEffect(() => {
     // Chỉ load topic mới khi KHÔNG có essayId (tức là tạo bài mới)
     if (essayId) return; // Nếu có essayId, đã load ở useEffect trên, không cần tạo mới
-    
+
     // Nếu đã có essayData rồi, không load lại
     if (essayData) return;
 
@@ -207,8 +255,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ 
-            certificateId, 
+          body: JSON.stringify({
+            certificateId,
             band,
             contentType: contentType || "full",
             outlineLanguage: outlineLanguage || "vietnamese"
@@ -259,13 +307,13 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
         // Lấy finalFeedback từ state nếu có
         const finalFeedbackToSave = feedback || undefined;
         saveEssayToStorage(
-          currentEssayId, 
-          essayData, 
-          currentText, 
-          notes, 
-          summary || undefined, 
-          finalFeedbackToSave, 
-          undefined, 
+          currentEssayId,
+          essayData,
+          currentText,
+          notes,
+          summary || undefined,
+          finalFeedbackToSave,
+          undefined,
           outlineLanguage || "vietnamese",
           sectionContents,
           sectionFeedbacks
@@ -293,13 +341,13 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
 
     // Lấy phần text đã analyze lần cuối
     const lastAnalyzed = lastAnalyzedContent.current['_global'] || "";
-    
+
     // Kiểm tra xem có text mới chưa được analyze không
     if (currentText.length <= lastAnalyzed.length) return;
-    
+
     // Tìm phần text mới (chỉ analyze phần chưa analyze)
     const newText = currentText.slice(lastAnalyzed.length).trim();
-    
+
     // Chỉ analyze khi có câu hoàn chỉnh mới (kết thúc bằng . ! ?)
     const newSentences = newText.match(/[^.!?]*[.!?]+/g) || [];
     if (newSentences.length === 0) return;
@@ -317,17 +365,55 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   const analyzeNewContent = async (sectionId: string, newText: string, sectionVn: string) => {
     if (!newText.trim() || !essayData || isAnalyzing) return;
 
+    // Throttle: enforce 5-second gap between requests
+    const now = Date.now();
+    if (now - lastRequestTime.current < THROTTLE_MS) {
+      console.log(`⏳ Throttled: waiting ${Math.ceil((THROTTLE_MS - (now - lastRequestTime.current)) / 1000)}s`);
+      return;
+    }
+
+    // Check local cache first
+    const cacheKey = simpleHash(`${newText}|${sectionVn}|${target}`);
+    const cachedResult = getLocalCache(cacheKey);
+    if (cachedResult) {
+      console.log('✓ Local cache hit - using cached feedback');
+      setFeedback(cachedResult);
+      setAccuracy(cachedResult.accuracy || 0);
+      lastAnalyzedContent.current[sectionId] = currentText;
+      setSectionFeedbacks(prev => {
+        const existingFeedback = prev[sectionId];
+        const existingSuggestions = existingFeedback?.suggestions || [];
+        const newSuggestions = (cachedResult.suggestions || []).map(s => ({ ...s, sectionId }));
+        return {
+          ...prev,
+          [sectionId]: {
+            sectionId,
+            content: currentText,
+            lastAnalyzedContent: currentText,
+            feedback: cachedResult,
+            suggestions: [...existingSuggestions, ...newSuggestions],
+            analyzedAt: Date.now()
+          }
+        };
+      });
+      setAllFeedbacks(prev => [...prev, cachedResult]);
+      return;
+    }
+
+    // Update throttle timestamp
+    lastRequestTime.current = now;
     setIsAnalyzing(true);
+
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          userEn: newText, 
-          sourceVn: sectionVn, 
-          target 
+        body: JSON.stringify({
+          userEn: newText,
+          sourceVn: sectionVn,
+          target
         })
       });
 
@@ -335,21 +421,24 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
         const data: AnalysisResult = await res.json();
         setFeedback(data);
         setAccuracy(data.accuracy || 0);
-        
+
+        // Save to local cache
+        setLocalCache(cacheKey, data);
+
         // Cập nhật lastAnalyzedContent với currentText hiện tại
         lastAnalyzedContent.current[sectionId] = currentText;
-        
+
         // Lưu feedback (MERGE với feedback cũ, không thay thế)
         setSectionFeedbacks(prev => {
           const existingFeedback = prev[sectionId];
           const existingSuggestions = existingFeedback?.suggestions || [];
-          
+
           // Thêm sectionId vào mỗi suggestion mới để track nguồn gốc
           const newSuggestions = (data.suggestions || []).map(s => ({
             ...s,
             sectionId
           }));
-          
+
           return {
             ...prev,
             [sectionId]: {
@@ -362,13 +451,13 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             }
           };
         });
-        
+
         // Cũng lưu vào allFeedbacks để backward compatible
         setAllFeedbacks(prev => [...prev, data]);
       } else {
         const errorData = await res.json();
-        if (errorData.type === "QUOTA_EXCEEDED") {
-          console.warn("Quota exceeded - auto-analysis skipped");
+        if (errorData.type === "QUOTA_EXCEEDED" || res.status === 429) {
+          console.warn("Rate limited or quota exceeded - analysis skipped");
         }
       }
     } catch (error: any) {
@@ -391,16 +480,16 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     setIsAnalyzing(true);
     try {
       const sourceVn = essayData.sections.map(s => s.vn).join(" ");
-      
+
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          userEn: currentText, 
-          sourceVn, 
-          target 
+        body: JSON.stringify({
+          userEn: currentText,
+          sourceVn,
+          target
         })
       });
 
@@ -420,29 +509,29 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       const data = await res.json();
       setFeedback(data);
       setAccuracy(data.accuracy || 0);
-      
+
       // Lưu feedback cuối cùng vào danh sách
       const updatedFeedbacks = [...allFeedbacks, data];
       setAllFeedbacks(updatedFeedbacks);
-      
+
       // Tạo summary từ TẤT CẢ section feedbacks (không phải từ allFeedbacks)
       const newSummary = createSummaryFromSections();
       setSummary(newSummary);
-      
+
       // Đánh dấu bài đã hoàn thành nếu progress = 100%
       const progress = calculateProgress();
       if (progress >= 100) {
         setIsCompleted(true);
       }
-      
+
       // Lưu summary và finalFeedback vào storage
       if (currentEssayId && essayData) {
         saveEssayToStorage(
-          currentEssayId, 
-          essayData, 
-          currentText, 
-          notes, 
-          newSummary, 
+          currentEssayId,
+          essayData,
+          currentText,
+          notes,
+          newSummary,
           data,
           undefined,
           undefined,
@@ -465,7 +554,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       const sentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
       return acc + sentences.length;
     }, 0);
-    
+
     const userSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
     const progress = Math.min(100, Math.round((userSentences.length / totalVnSentences) * 100));
     return progress;
@@ -474,10 +563,10 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   // Tạo summary từ TẤT CẢ section feedbacks - đảm bảo không mất dữ liệu khi chuyển section
   const createSummaryFromSections = (): EssaySummary => {
     const { grammar, vocabulary, total, allSuggestions } = getTotalErrors();
-    
+
     const grammarMistakes: string[] = [];
     const vocabIssues: string[] = [];
-    
+
     allSuggestions.forEach(s => {
       const reason = s.reason?.toLowerCase() || "";
       if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ") || reason.includes("tense") || reason.includes("verb") || reason.includes("subject")) {
@@ -509,7 +598,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     if (Object.keys(sectionFeedbacks).length > 0) {
       return createSummaryFromSections();
     }
-    
+
     // Fallback: dùng allFeedbacks
     const grammarErrors: string[] = [];
     const vocabularyIssues: string[] = [];
@@ -629,7 +718,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400 font-medium">Progress:</span>
               <div className="flex-1 h-2 bg-[#1a212e] rounded-full overflow-hidden">
-                <div 
+                <div
                   className="h-full bg-primary transition-all duration-300 rounded-full"
                   style={{ width: `${calculateProgress()}%` }}
                 ></div>
@@ -641,187 +730,187 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
           {/* Content area with padding */}
           <div className="flex-1 flex flex-col p-4 sm:p-6 gap-4 sm:gap-6 overflow-hidden">
             {/* Vietnamese Text Display */}
-          <div className="flex-1 bg-[#111620] rounded-lg p-4 sm:p-6 overflow-y-auto custom-scrollbar border border-gray-800/50">
-            <div className="space-y-4 sm:space-y-6">
-              {essayData.sections.map((section, idx) => {
-                return (
-                  <div key={section.id} className="space-y-2">
-                    <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-gray-500">
-                      {section.label}
-                    </h3>
-                    {/* Check if content is outline format (has numbered points like 1 2 3 or bullet points -) */}
-                    {section.vn.match(/^\d+\s|^-\s/m) ? (
-                      // Outline format - render hierarchical structure
-                      <div className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400 space-y-1">
-                        {section.vn.split('\n').filter(line => line.trim()).map((line, lineIdx) => {
-                          const trimmedLine = line.trim();
-                          // Main point (starts with number)
-                          if (trimmedLine.match(/^\d+\s/)) {
-                            const num = trimmedLine.match(/^\d+/)?.[0];
-                            const text = trimmedLine.replace(/^\d+\s*/, '').trim();
-                            return (
-                              <div key={lineIdx} className="flex gap-2 mt-2 first:mt-0">
-                                <span className="text-primary font-bold min-w-[18px]">{num}</span>
-                                <span className="font-medium text-gray-300">{text}</span>
-                              </div>
-                            );
-                          }
-                          // Sub-point (starts with -)
-                          if (trimmedLine.startsWith('-')) {
-                            const text = trimmedLine.replace(/^-\s*/, '').trim();
-                            return (
-                              <div key={lineIdx} className="flex gap-2 pl-6">
-                                <span className="text-gray-500">-</span>
-                                <span className="text-gray-400">{text}</span>
-                              </div>
-                            );
-                          }
-                          // Regular text
-                          return (
-                            <div key={lineIdx} className="text-gray-400">{trimmedLine}</div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      // Full paragraph format - highlight current sentence
-                      <p className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400">
-                        {(() => {
-                          const vnSentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
-                          const userSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
-                          const currentSentenceIdx = userSentences.length;
-                          
-                          return vnSentences.map((sentence, sIdx) => {
-                            // Calculate global sentence index across all sections
-                            let globalSentenceIndex = 0;
-                            for (let i = 0; i < idx; i++) {
-                              const prevSentences = essayData.sections[i].vn.match(/[^.!?]*[.!?]+/g) || [essayData.sections[i].vn];
-                              globalSentenceIndex += prevSentences.length;
+            <div className="flex-1 bg-[#111620] rounded-lg p-4 sm:p-6 overflow-y-auto custom-scrollbar border border-gray-800/50">
+              <div className="space-y-4 sm:space-y-6">
+                {essayData.sections.map((section, idx) => {
+                  return (
+                    <div key={section.id} className="space-y-2">
+                      <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-gray-500">
+                        {section.label}
+                      </h3>
+                      {/* Check if content is outline format (has numbered points like 1 2 3 or bullet points -) */}
+                      {section.vn.match(/^\d+\s|^-\s/m) ? (
+                        // Outline format - render hierarchical structure
+                        <div className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400 space-y-1">
+                          {section.vn.split('\n').filter(line => line.trim()).map((line, lineIdx) => {
+                            const trimmedLine = line.trim();
+                            // Main point (starts with number)
+                            if (trimmedLine.match(/^\d+\s/)) {
+                              const num = trimmedLine.match(/^\d+/)?.[0];
+                              const text = trimmedLine.replace(/^\d+\s*/, '').trim();
+                              return (
+                                <div key={lineIdx} className="flex gap-2 mt-2 first:mt-0">
+                                  <span className="text-primary font-bold min-w-[18px]">{num}</span>
+                                  <span className="font-medium text-gray-300">{text}</span>
+                                </div>
+                              );
                             }
-                            globalSentenceIndex += sIdx;
-                            
-                            // Highlight sentence that user is currently writing
-                            const isHighlighted = globalSentenceIndex === currentSentenceIdx && currentText.length > 0;
-                            
+                            // Sub-point (starts with -)
+                            if (trimmedLine.startsWith('-')) {
+                              const text = trimmedLine.replace(/^-\s*/, '').trim();
+                              return (
+                                <div key={lineIdx} className="flex gap-2 pl-6">
+                                  <span className="text-gray-500">-</span>
+                                  <span className="text-gray-400">{text}</span>
+                                </div>
+                              );
+                            }
+                            // Regular text
                             return (
-                              <span key={sIdx} className={isHighlighted ? "text-pink-500 font-semibold" : ""}>
-                                {sentence}
-                              </span>
+                              <div key={lineIdx} className="text-gray-400">{trimmedLine}</div>
                             );
-                          });
-                        })()}
-                      </p>
-                    )}
-                    {idx < essayData.sections.length - 1 && <div className="h-4"></div>}
+                          })}
+                        </div>
+                      ) : (
+                        // Full paragraph format - highlight current sentence
+                        <p className="text-sm sm:text-[15px] leading-6 sm:leading-7 text-gray-400">
+                          {(() => {
+                            const vnSentences = section.vn.match(/[^.!?]*[.!?]+/g) || [section.vn];
+                            const userSentences = currentText.match(/[^.!?]*[.!?]+/g) || [];
+                            const currentSentenceIdx = userSentences.length;
+
+                            return vnSentences.map((sentence, sIdx) => {
+                              // Calculate global sentence index across all sections
+                              let globalSentenceIndex = 0;
+                              for (let i = 0; i < idx; i++) {
+                                const prevSentences = essayData.sections[i].vn.match(/[^.!?]*[.!?]+/g) || [essayData.sections[i].vn];
+                                globalSentenceIndex += prevSentences.length;
+                              }
+                              globalSentenceIndex += sIdx;
+
+                              // Highlight sentence that user is currently writing
+                              const isHighlighted = globalSentenceIndex === currentSentenceIdx && currentText.length > 0;
+
+                              return (
+                                <span key={sIdx} className={isHighlighted ? "text-pink-500 font-semibold" : ""}>
+                                  {sentence}
+                                </span>
+                              );
+                            });
+                          })()}
+                        </p>
+                      )}
+                      {idx < essayData.sections.length - 1 && <div className="h-4"></div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* English Input Textarea */}
+            <div className="h-[150px] sm:h-[180px] relative flex flex-col gap-4">
+              <div className="relative w-full h-full rounded-lg border border-primary/50 bg-[#131926] overflow-hidden focus-within:border-primary transition-colors">
+                <textarea
+                  ref={textareaRef}
+                  value={currentText}
+                  onChange={(e) => handleTextChange(e.target.value)}
+                  className="w-full h-full bg-transparent border-none p-3 sm:p-4 text-sm sm:text-base text-gray-200 placeholder-gray-500 focus:ring-0 resize-none font-medium custom-scrollbar"
+                  placeholder="Start writing your translation here..."
+                  spellCheck="false"
+                />
+              </div>
+            </div>
+
+            {/* Mobile Feedback Section - Hiển thị trên mobile, ẩn trên desktop */}
+            <div className="lg:hidden">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-bold text-gray-200">Feedback</h3>
+                {isAnalyzing && (
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                    <span>Analyzing...</span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* English Input Textarea */}
-          <div className="h-[150px] sm:h-[180px] relative flex flex-col gap-4">
-            <div className="relative w-full h-full rounded-lg border border-primary/50 bg-[#131926] overflow-hidden focus-within:border-primary transition-colors">
-              <textarea
-                ref={textareaRef}
-                value={currentText}
-                onChange={(e) => handleTextChange(e.target.value)}
-                className="w-full h-full bg-transparent border-none p-3 sm:p-4 text-sm sm:text-base text-gray-200 placeholder-gray-500 focus:ring-0 resize-none font-medium custom-scrollbar"
-                placeholder="Start writing your translation here..."
-                spellCheck="false"
-              />
-            </div>
-          </div>
-
-          {/* Mobile Feedback Section - Hiển thị trên mobile, ẩn trên desktop */}
-          <div className="lg:hidden">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-bold text-gray-200">Feedback</h3>
-              {isAnalyzing && (
-                <div className="flex items-center gap-2 text-xs text-gray-400">
-                  <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                  <span>Analyzing...</span>
+                )}
+              </div>
+              {feedback ? (
+                <div className="bg-[#131823] rounded-lg p-4 border border-gray-800 space-y-4 max-h-[200px] overflow-y-auto custom-scrollbar">
+                  {feedback.suggestions && feedback.suggestions.length > 0 && (
+                    <div>
+                      <p className="text-gray-400 text-xs mb-2 font-medium">Suggested improvements:</p>
+                      <ul className="space-y-2">
+                        {feedback.suggestions.slice(0, 3).map((s, i) => (
+                          <li key={i} className="flex gap-2 text-xs text-gray-300">
+                            <span className="w-1 h-1 rounded-full bg-gray-500 mt-1.5 flex-none"></span>
+                            <span className="leading-relaxed break-words">
+                              {s.error && (
+                                <>
+                                  <span className="line-through text-red-400">{s.error}</span> →{' '}
+                                  <span className="text-primary font-bold">{s.fix}</span>
+                                </>
+                              )}
+                              {s.reason && <><br /><span className="block text-[10px] text-gray-400 mt-1">{s.reason}</span></>}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {feedback.suggestions.length > 3 && (
+                        <button
+                          onClick={() => setShowSidebar(true)}
+                          className="mt-2 text-xs text-primary hover:underline"
+                        >
+                          Xem thêm {feedback.suggestions.length - 3} gợi ý khác →
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {(!feedback.suggestions || feedback.suggestions.length === 0) && (
+                    <div className="text-center py-3">
+                      <p className="text-xs text-gray-400">Không có gợi ý cải thiện. Bài viết của bạn rất tốt!</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-[#131823] rounded-lg p-4 border border-gray-800">
+                  <p className="text-gray-500 text-xs text-center">
+                    {isAnalyzing ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                        Đang phân tích...
+                      </span>
+                    ) : (
+                      "Viết để nhận feedback tự động"
+                    )}
+                  </p>
                 </div>
               )}
             </div>
-            {feedback ? (
-              <div className="bg-[#131823] rounded-lg p-4 border border-gray-800 space-y-4 max-h-[200px] overflow-y-auto custom-scrollbar">
-                {feedback.suggestions && feedback.suggestions.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 text-xs mb-2 font-medium">Suggested improvements:</p>
-                    <ul className="space-y-2">
-                      {feedback.suggestions.slice(0, 3).map((s, i) => (
-                        <li key={i} className="flex gap-2 text-xs text-gray-300">
-                          <span className="w-1 h-1 rounded-full bg-gray-500 mt-1.5 flex-none"></span>
-                          <span className="leading-relaxed break-words">
-                            {s.error && (
-                              <>
-                                <span className="line-through text-red-400">{s.error}</span> →{' '}
-                                <span className="text-primary font-bold">{s.fix}</span>
-                              </>
-                            )}
-                            {s.reason && <><br/><span className="block text-[10px] text-gray-400 mt-1">{s.reason}</span></>}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    {feedback.suggestions.length > 3 && (
-                      <button
-                        onClick={() => setShowSidebar(true)}
-                        className="mt-2 text-xs text-primary hover:underline"
-                      >
-                        Xem thêm {feedback.suggestions.length - 3} gợi ý khác →
-                      </button>
-                    )}
-                  </div>
-                )}
-                {(!feedback.suggestions || feedback.suggestions.length === 0) && (
-                  <div className="text-center py-3">
-                    <p className="text-xs text-gray-400">Không có gợi ý cải thiện. Bài viết của bạn rất tốt!</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-[#131823] rounded-lg p-4 border border-gray-800">
-                <p className="text-gray-500 text-xs text-center">
-                  {isAnalyzing ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                      Đang phân tích...
-                    </span>
-                  ) : (
-                    "Viết để nhận feedback tự động"
-                  )}
-                </p>
-              </div>
-            )}
-          </div>
 
-          {/* Bottom Action Bar */}
-          <div className="flex items-center justify-between h-auto sm:h-12 gap-2 sm:gap-0">
-            <button
-              onClick={onQuit}
-              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded bg-[#1f2937] hover:bg-[#374151] text-white text-xs sm:text-sm font-medium transition-colors border border-gray-700"
-            >
-              <span className="material-symbols-outlined text-[16px] sm:text-[18px]">arrow_back</span>
-              <span className="hidden sm:inline">Quit</span>
-            </button>
-            <div className="flex items-center gap-2 sm:gap-3">
+            {/* Bottom Action Bar */}
+            <div className="flex items-center justify-between h-auto sm:h-12 gap-2 sm:gap-0">
               <button
-                onClick={() => setShowHint(!showHint)}
+                onClick={onQuit}
                 className="flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded bg-[#1f2937] hover:bg-[#374151] text-white text-xs sm:text-sm font-medium transition-colors border border-gray-700"
               >
-                <span className={`material-symbols-outlined text-[16px] sm:text-[18px] ${showHint ? "text-primary" : "text-gray-400"}`}>lightbulb</span>
-                <span className="hidden sm:inline">Hint</span>
+                <span className="material-symbols-outlined text-[16px] sm:text-[18px]">arrow_back</span>
+                <span className="hidden sm:inline">Quit</span>
               </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isAnalyzing || !currentText.trim()}
-                className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Submit
-              </button>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  onClick={() => setShowHint(!showHint)}
+                  className="flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded bg-[#1f2937] hover:bg-[#374151] text-white text-xs sm:text-sm font-medium transition-colors border border-gray-700"
+                >
+                  <span className={`material-symbols-outlined text-[16px] sm:text-[18px] ${showHint ? "text-primary" : "text-gray-400"}`}>lightbulb</span>
+                  <span className="hidden sm:inline">Hint</span>
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={isAnalyzing || !currentText.trim()}
+                  className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Submit
+                </button>
+              </div>
             </div>
-          </div>
           </div>{/* End content area */}
         </section>
 
@@ -873,10 +962,10 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                 {(() => {
                   const globalFeedback = sectionFeedbacks['_global'];
                   if (!globalFeedback || globalFeedback.suggestions.length === 0) return null;
-                  
+
                   // Hiển thị tất cả lỗi, lỗi cũ ở trên, lỗi mới ở dưới
                   const displayedErrors = globalFeedback.suggestions;
-                  
+
                   return (
                     <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
                       <p className="text-xs text-gray-400 mb-2">
@@ -885,18 +974,17 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                       <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
                         {displayedErrors.map((s, i) => {
                           const isExpanded = expandedErrorIndex === i;
-                          const isGrammar = s.reason?.toLowerCase().includes("ngữ pháp") || 
-                                           s.reason?.toLowerCase().includes("grammar") ||
-                                           s.reason?.toLowerCase().includes("cấu trúc") ||
-                                           s.reason?.toLowerCase().includes("động từ") ||
-                                           s.reason?.toLowerCase().includes("mạo từ");
-                          
+                          const isGrammar = s.reason?.toLowerCase().includes("ngữ pháp") ||
+                            s.reason?.toLowerCase().includes("grammar") ||
+                            s.reason?.toLowerCase().includes("cấu trúc") ||
+                            s.reason?.toLowerCase().includes("động từ") ||
+                            s.reason?.toLowerCase().includes("mạo từ");
+
                           return (
-                            <li 
-                              key={i} 
-                              className={`text-xs text-gray-300 p-2 bg-[#1a212e] rounded border cursor-pointer transition-all duration-200 hover:border-gray-600 ${
-                                isExpanded ? 'border-primary/50 bg-[#1a212e]/80' : 'border-gray-700'
-                              }`}
+                            <li
+                              key={i}
+                              className={`text-xs text-gray-300 p-2 bg-[#1a212e] rounded border cursor-pointer transition-all duration-200 hover:border-gray-600 ${isExpanded ? 'border-primary/50 bg-[#1a212e]/80' : 'border-gray-700'
+                                }`}
                               onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
                             >
                               <div className="flex items-start gap-2">
@@ -906,16 +994,16 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                                     <span className="line-through text-red-400 truncate">{s.error}</span>
                                     <span className="text-gray-500">→</span>
                                     <span className="text-primary font-medium truncate">{s.fix}</span>
-                                    <svg 
-                                      className={`w-3 h-3 text-gray-500 flex-none ml-auto transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
-                                      fill="none" 
-                                      stroke="currentColor" 
+                                    <svg
+                                      className={`w-3 h-3 text-gray-500 flex-none ml-auto transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                      fill="none"
+                                      stroke="currentColor"
                                       viewBox="0 0 24 24"
                                     >
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                     </svg>
                                   </div>
-                                  
+
                                   {/* Expanded content */}
                                   {isExpanded && s.reason && (
                                     <div className="mt-2 pt-2 border-t border-gray-700">
@@ -952,18 +1040,18 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                     <p className="text-base sm:text-lg font-bold text-orange-400">{summary.vocabularyErrors}</p>
                   </div>
                 </div>
-                
+
                 {/* Hiển thị toàn bộ suggestions với reason chi tiết */}
                 {summary.allSuggestions && summary.allSuggestions.length > 0 && (
                   <div>
                     <p className="text-xs sm:text-sm text-gray-400 mb-2 sm:mb-3 font-medium">Chi tiết các lỗi đã phát hiện:</p>
                     <ul className="space-y-2 sm:space-y-3 max-h-64 sm:max-h-80 overflow-y-auto custom-scrollbar">
                       {summary.allSuggestions.map((suggestion, i) => {
-                        const isGrammar = suggestion.reason?.toLowerCase().includes("ngữ pháp") || 
-                                         suggestion.reason?.toLowerCase().includes("grammar") ||
-                                         suggestion.reason?.toLowerCase().includes("cấu trúc") ||
-                                         suggestion.reason?.toLowerCase().includes("động từ") ||
-                                         suggestion.reason?.toLowerCase().includes("mạo từ");
+                        const isGrammar = suggestion.reason?.toLowerCase().includes("ngữ pháp") ||
+                          suggestion.reason?.toLowerCase().includes("grammar") ||
+                          suggestion.reason?.toLowerCase().includes("cấu trúc") ||
+                          suggestion.reason?.toLowerCase().includes("động từ") ||
+                          suggestion.reason?.toLowerCase().includes("mạo từ");
                         return (
                           <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2 sm:gap-3 p-2 sm:p-3 bg-[#1a212e] rounded border border-gray-700">
                             <span className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full mt-1.5 sm:mt-2 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
@@ -1055,7 +1143,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                                 <span className="text-primary font-bold">{s.fix}</span>
                               </>
                             )}
-                            {s.reason && <><br className="hidden sm:block"/><span className="block sm:inline">{s.reason}</span></>}
+                            {s.reason && <><br className="hidden sm:block" /><span className="block sm:inline">{s.reason}</span></>}
                           </span>
                         </li>
                       ))}
