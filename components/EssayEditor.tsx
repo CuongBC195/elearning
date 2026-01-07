@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion, SectionFeedback } from '@/types';
+import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion, SectionFeedback, EssayScore } from '@/types';
+import { calculateScore } from '@/lib/essay-scorer';
+import ScorePanel from './ScorePanel';
 
 // Client-side throttle: minimum 5 seconds between API calls
 const THROTTLE_MS = 5000;
@@ -79,6 +81,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   const [sectionContents, setSectionContents] = useState<{ [sectionId: string]: string }>({}); // Nội dung từng section
   const [sectionFeedbacks, setSectionFeedbacks] = useState<{ [sectionId: string]: SectionFeedback }>({}); // Feedback từng section
   const [expandedErrorIndex, setExpandedErrorIndex] = useState<number | null>(null); // Track lỗi đang expand
+  const [essayScore, setEssayScore] = useState<EssayScore | null>(null); // Score khi hoàn thành
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedContent = useRef<{ [sectionId: string]: string }>({}); // Track content đã analyze cho từng section
   const isLoadingTopicRef = useRef(false); // Prevent duplicate topic loading
@@ -119,12 +122,13 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     setCurrentText(allContents);
   };
 
-  // Helper: Tính total errors từ tất cả section feedbacks
+  // Helper: Tính total errors từ tất cả section feedbacks VÀ global feedback
   const getTotalErrors = (): { grammar: number; vocabulary: number; total: number; allSuggestions: AnalysisSuggestion[] } => {
     let grammar = 0;
     let vocabulary = 0;
     const allSuggestions: AnalysisSuggestion[] = [];
 
+    // Count from section feedbacks
     Object.values(sectionFeedbacks).forEach(sf => {
       sf.suggestions.forEach(s => {
         allSuggestions.push(s);
@@ -136,6 +140,23 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
         }
       });
     });
+
+    // Also count from global feedback if exists
+    if (feedback?.suggestions) {
+      feedback.suggestions.forEach(s => {
+        // Avoid duplicates - check if already in allSuggestions
+        const isDuplicate = allSuggestions.some(existing => existing.error === s.error && existing.fix === s.fix);
+        if (!isDuplicate) {
+          allSuggestions.push(s);
+          const reason = s.reason?.toLowerCase() || "";
+          if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ") || reason.includes("tense") || reason.includes("verb") || reason.includes("subject")) {
+            grammar++;
+          } else {
+            vocabulary++;
+          }
+        }
+      });
+    }
 
     return { grammar, vocabulary, total: grammar + vocabulary, allSuggestions };
   };
@@ -219,6 +240,11 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             setIsCompleted(progress >= 100);
             setCurrentSentenceIndex(userSentences.length);
             setAllFeedbacks([]);
+            // Load score if exists - also set isCompleted to show score panel
+            if (essay.score) {
+              setEssayScore(essay.score);
+              setIsCompleted(true); // Đảm bảo hiển thị score panel
+            }
             setIsLoadingTopic(false);
             return; // Đã load xong, không cần làm gì thêm
           }
@@ -592,6 +618,46 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     };
   };
 
+  // Auto-calculate score when progress reaches 100% AND AI analysis is complete
+  useEffect(() => {
+    const progress = calculateProgress();
+    // Check if we have any feedback - either from sectionFeedbacks or global feedback
+    const hasSectionFeedback = Object.values(sectionFeedbacks).some(sf => sf.feedback !== null || sf.suggestions.length > 0);
+    const hasGlobalFeedback = feedback !== null;
+    const hasAnyFeedback = hasSectionFeedback || hasGlobalFeedback;
+
+    // Only score when:
+    // 1. Progress >= 100%
+    // 2. Not already completed/scored
+    // 3. Not currently analyzing
+    // 4. Has at least some feedback from AI
+    if (progress >= 100 && !isCompleted && !essayScore && !isAnalyzing && hasAnyFeedback) {
+      // Đánh dấu hoàn thành
+      setIsCompleted(true);
+
+      // Tính điểm từ feedback history
+      const summaryData = createSummaryFromSections();
+      const score = calculateScore(summaryData, band, certificateId);
+      setEssayScore(score);
+      setSummary(summaryData);
+
+      // Lưu vào storage ngay lập tức
+      if (currentEssayId && essayData) {
+        const savedEssays = localStorage.getItem('saved_essays');
+        if (savedEssays) {
+          const essays: SavedEssay[] = JSON.parse(savedEssays);
+          const essayIndex = essays.findIndex(e => e.id === currentEssayId);
+          if (essayIndex >= 0) {
+            essays[essayIndex].score = score;
+            essays[essayIndex].summary = summaryData;
+            essays[essayIndex].sectionFeedbacks = sectionFeedbacks;
+            localStorage.setItem('saved_essays', JSON.stringify(essays));
+          }
+        }
+      }
+    }
+  }, [currentText, essayData, isAnalyzing, sectionFeedbacks, feedback]);
+
   // Legacy: Tạo summary từ allFeedbacks (backward compatible)
   const createSummary = (feedbacks: AnalysisResult[], finalAccuracy: number): EssaySummary => {
     // Ưu tiên dùng section feedbacks nếu có
@@ -924,180 +990,265 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
-          {/* Summary & Accuracy - Sử dụng getTotalErrors() để đếm real-time */}
-          {(() => {
-            const errorStats = getTotalErrors();
-            return (
-              <>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
-                    <div className="relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border-2 border-green-500 text-green-500 mb-1">
-                      <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-green-500 rounded-full"></div>
-                    </div>
-                    <span className="text-xs sm:text-sm font-bold text-gray-200">{accuracy.toFixed(0)}%</span>
-                    <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Accuracy</span>
-                  </div>
-                  <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
-                    <span className="material-symbols-outlined text-[20px] sm:text-[24px] text-primary">check_circle</span>
-                    <span className="text-xs sm:text-sm font-bold text-gray-200">{errorStats.total}</span>
-                    <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Total Errors</span>
-                  </div>
-                </div>
 
-                {/* Real-time Error Stats by Type */}
-                {errorStats.total > 0 && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-[#1a212e] rounded p-2 border border-gray-700">
-                      <p className="text-[10px] text-gray-400">Grammar</p>
-                      <p className="text-sm font-bold text-red-400">{errorStats.grammar}</p>
+          {/* ========== PHẦN CHƯA HOÀN THÀNH ========== */}
+          {/* Chỉ hiện khi chưa hoàn thành (chưa có score) */}
+          {!essayScore && (
+            <>
+              {/* Accuracy & Total Errors */}
+              {(() => {
+                const errorStats = getTotalErrors();
+                return (
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
+                      <div className="relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border-2 border-green-500 text-green-500 mb-1">
+                        <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-green-500 rounded-full"></div>
+                      </div>
+                      <span className="text-xs sm:text-sm font-bold text-gray-200">{accuracy.toFixed(0)}%</span>
+                      <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Accuracy</span>
                     </div>
-                    <div className="bg-[#1a212e] rounded p-2 border border-gray-700">
-                      <p className="text-[10px] text-gray-400">Vocabulary</p>
-                      <p className="text-sm font-bold text-orange-400">{errorStats.vocabulary}</p>
+                    <div className="bg-[#1a212e] rounded-lg p-3 sm:p-4 flex flex-col items-center justify-center gap-1 border border-gray-800">
+                      <span className="material-symbols-outlined text-[20px] sm:text-[24px] text-primary">check_circle</span>
+                      <span className="text-xs sm:text-sm font-bold text-gray-200">{errorStats.total}</span>
+                      <span className="text-[9px] sm:text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Total Errors</span>
                     </div>
                   </div>
-                )}
+                );
+              })()}
 
-                {/* Recent Errors - Hiển thị lỗi đã phát hiện */}
-                {(() => {
-                  const globalFeedback = sectionFeedbacks['_global'];
-                  if (!globalFeedback || globalFeedback.suggestions.length === 0) return null;
+              {/* Lỗi đã phát hiện - Chỉ hiển thị khi có lỗi VÀ chưa hoàn thành */}
+              {(() => {
+                const errorStats = getTotalErrors();
+                if (errorStats.allSuggestions.length === 0) return null;
 
-                  // Hiển thị tất cả lỗi, lỗi cũ ở trên, lỗi mới ở dưới
-                  const displayedErrors = globalFeedback.suggestions;
-
-                  return (
-                    <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
-                      <p className="text-xs text-gray-400 mb-2">
-                        Lỗi đã phát hiện ({globalFeedback.suggestions.length})
-                      </p>
-                      <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                        {displayedErrors.map((s, i) => {
-                          const isExpanded = expandedErrorIndex === i;
-                          const isGrammar = s.reason?.toLowerCase().includes("ngữ pháp") ||
-                            s.reason?.toLowerCase().includes("grammar") ||
-                            s.reason?.toLowerCase().includes("cấu trúc") ||
-                            s.reason?.toLowerCase().includes("động từ") ||
-                            s.reason?.toLowerCase().includes("mạo từ");
-
-                          return (
-                            <li
-                              key={i}
-                              className={`text-xs text-gray-300 p-2 bg-[#1a212e] rounded border cursor-pointer transition-all duration-200 hover:border-gray-600 ${isExpanded ? 'border-primary/50 bg-[#1a212e]/80' : 'border-gray-700'
-                                }`}
-                              onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
-                            >
-                              <div className="flex items-start gap-2">
-                                <span className={`w-1.5 h-1.5 rounded-full mt-1 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1">
-                                    <span className="line-through text-red-400 truncate">{s.error}</span>
-                                    <span className="text-gray-500">→</span>
-                                    <span className="text-primary font-medium truncate">{s.fix}</span>
-                                    <svg
-                                      className={`w-3 h-3 text-gray-500 flex-none ml-auto transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                  </div>
-
-                                  {/* Expanded content */}
-                                  {isExpanded && s.reason && (
-                                    <div className="mt-2 pt-2 border-t border-gray-700">
-                                      <p className="text-[11px] text-gray-400 leading-relaxed whitespace-normal">
-                                        {s.reason}
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  );
-                })()}
-              </>
-            );
-          })()}
-
-          {/* Summary Section - Hiển thị khi đã submit */}
-          {summary && summary.completedAt && (
-            <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800">
-              <h3 className="text-base sm:text-lg font-bold text-gray-200 mb-3 sm:mb-4">Tổng kết bài viết</h3>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
-                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi ngữ pháp</p>
-                    <p className="text-base sm:text-lg font-bold text-red-400">{summary.grammarErrors}</p>
-                  </div>
-                  <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
-                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi từ vựng</p>
-                    <p className="text-base sm:text-lg font-bold text-orange-400">{summary.vocabularyErrors}</p>
-                  </div>
-                </div>
-
-                {/* Hiển thị toàn bộ suggestions với reason chi tiết */}
-                {summary.allSuggestions && summary.allSuggestions.length > 0 && (
-                  <div>
-                    <p className="text-xs sm:text-sm text-gray-400 mb-2 sm:mb-3 font-medium">Chi tiết các lỗi đã phát hiện:</p>
-                    <ul className="space-y-2 sm:space-y-3 max-h-64 sm:max-h-80 overflow-y-auto custom-scrollbar">
-                      {summary.allSuggestions.map((suggestion, i) => {
-                        const isGrammar = suggestion.reason?.toLowerCase().includes("ngữ pháp") ||
-                          suggestion.reason?.toLowerCase().includes("grammar") ||
-                          suggestion.reason?.toLowerCase().includes("cấu trúc") ||
-                          suggestion.reason?.toLowerCase().includes("động từ") ||
-                          suggestion.reason?.toLowerCase().includes("mạo từ");
+                return (
+                  <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
+                    <p className="text-xs text-gray-400 mb-2">
+                      Lỗi đã phát hiện ({errorStats.allSuggestions.length})
+                    </p>
+                    <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                      {errorStats.allSuggestions.map((s, i) => {
+                        const isExpanded = expandedErrorIndex === i;
+                        const isGrammar = s.reason?.toLowerCase().includes("ngữ pháp") ||
+                          s.reason?.toLowerCase().includes("grammar") ||
+                          s.reason?.toLowerCase().includes("cấu trúc") ||
+                          s.reason?.toLowerCase().includes("động từ") ||
+                          s.reason?.toLowerCase().includes("mạo từ");
                         return (
-                          <li key={i} className="text-xs sm:text-sm text-gray-300 flex items-start gap-2 sm:gap-3 p-2 sm:p-3 bg-[#1a212e] rounded border border-gray-700">
-                            <span className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full mt-1.5 sm:mt-2 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
-                            <div className="flex-1 space-y-1">
-                              {suggestion.error && (
-                                <div>
-                                  <span className="line-through text-red-400">{suggestion.error}</span>
-                                  {' → '}
-                                  <span className="text-primary font-bold">{suggestion.fix}</span>
+                          <li
+                            key={i}
+                            onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
+                            className="p-2 bg-[#1a212e] rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors"
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1 flex-wrap text-xs text-gray-300">
+                                  <span className="line-through text-red-400 truncate">{s.error}</span>
+                                  <span className="text-gray-500">→</span>
+                                  <span className="text-primary font-medium truncate">{s.fix}</span>
                                 </div>
-                              )}
-                              {suggestion.reason && (
-                                <p className="text-[10px] sm:text-xs text-gray-400 leading-relaxed">{suggestion.reason}</p>
-                              )}
-                              {suggestion.sectionId && (
-                                <p className="text-[9px] text-gray-500">
-                                  Section: {essayData?.sections.find(s => s.id === suggestion.sectionId)?.label || suggestion.sectionId}
-                                </p>
-                              )}
+                                {isExpanded && s.reason && (
+                                  <div className="mt-2 pt-2 border-t border-gray-700">
+                                    <p className="text-[11px] text-gray-400 leading-relaxed whitespace-normal">
+                                      {s.reason}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                              <span className="material-symbols-outlined text-gray-500 text-sm flex-shrink-0">
+                                {isExpanded ? 'expand_less' : 'expand_more'}
+                              </span>
                             </div>
                           </li>
                         );
                       })}
                     </ul>
                   </div>
+                );
+              })()}
+
+              {/* Feedback Section - Chỉ hiện khi chưa hoàn thành */}
+              <div className="hidden lg:block">
+                <div className="flex items-center justify-between mb-3 sm:mb-4">
+                  <h3 className="text-base sm:text-lg font-bold text-gray-200">Feedback</h3>
+                  {isAnalyzing && (
+                    <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs text-gray-400">
+                      <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                      <span className="hidden sm:inline">Analyzing...</span>
+                    </div>
+                  )}
+                </div>
+                {feedback ? (
+                  <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 space-y-4 sm:space-y-5">
+                    {feedback.suggestions && feedback.suggestions.length > 0 && (
+                      <div>
+                        <p className="text-gray-400 text-xs sm:text-sm mb-2 sm:mb-3 font-medium">Suggested improvements:</p>
+                        <ul className="space-y-2 sm:space-y-3">
+                          {feedback.suggestions.map((s, i) => (
+                            <li key={i} className="flex gap-2 sm:gap-3 text-xs sm:text-sm text-gray-300">
+                              <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-gray-500 mt-1.5 sm:mt-2 flex-none"></span>
+                              <span className="leading-relaxed break-words">
+                                {s.error && (
+                                  <>
+                                    <span className="line-through text-red-400">{s.error}</span> →{' '}
+                                    <span className="text-primary font-bold">{s.fix}</span>
+                                  </>
+                                )}
+                                {s.reason && <><br className="hidden sm:block" /><span className="block sm:inline">{s.reason}</span></>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {(!feedback.suggestions || feedback.suggestions.length === 0) && (
+                      <div className="text-center py-3 sm:py-4">
+                        <p className="text-xs sm:text-sm text-gray-400">Không có gợi ý cải thiện. Bài viết của bạn rất tốt!</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800">
+                    <p className="text-gray-500 text-xs sm:text-sm text-center">
+                      {isAnalyzing ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                          <span className="hidden sm:inline">Đang phân tích...</span>
+                          <span className="sm:hidden">Đang phân tích</span>
+                        </span>
+                      ) : (
+                        "Viết để nhận feedback tự động"
+                      )}
+                    </p>
+                  </div>
                 )}
               </div>
-            </div>
+            </>
           )}
 
-          {/* Notes Section - Thay thế Dictionary */}
-          <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800">
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <h3 className="text-base sm:text-lg font-bold text-gray-200 flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px] sm:text-[20px]">note</span>
-                Ghi chú cá nhân
-              </h3>
-            </div>
-            <textarea
-              value={notes}
-              onChange={(e) => handleNotesChange(e.target.value)}
-              placeholder="Ghi chú những điểm cần nhớ, lỗi sai thường gặp, từ vựng mới..."
-              className="w-full h-32 sm:h-40 bg-[#1a212e] border border-gray-700 rounded p-3 text-xs sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary resize-none custom-scrollbar"
-            />
-            <p className="text-[10px] sm:text-xs text-gray-500 mt-2">Ghi chú sẽ được lưu tự động</p>
-          </div>
+          {/* ========== PHẦN ĐÃ HOÀN THÀNH ========== */}
+          {/* Chỉ hiện khi progress >= 100% VÀ AI done */}
+          {calculateProgress() >= 100 && !isAnalyzing && (
+            <>
+              {/* Manual Score Button - Khi chưa có score */}
+              {!essayScore && (() => {
+                const hasSectionFeedback = Object.values(sectionFeedbacks).some(sf => sf.feedback !== null || sf.suggestions.length > 0);
+                const hasGlobalFeedback = feedback !== null;
+                const hasAnyFeedback = hasSectionFeedback || hasGlobalFeedback;
+
+                if (!hasAnyFeedback) return null;
+
+                return (
+                  <div className="bg-card-dark rounded-xl border border-gray-700/50 p-4">
+                    <div className="text-center">
+                      <p className="text-sm text-gray-400 mb-3">Bài viết đã hoàn thành!</p>
+                      <button
+                        onClick={() => {
+                          const summaryData = createSummaryFromSections();
+                          const score = calculateScore(summaryData, band, certificateId);
+                          setEssayScore(score);
+                          setSummary(summaryData);
+                          setIsCompleted(true);
+                          // Save to storage
+                          if (currentEssayId && essayData) {
+                            const savedEssays = localStorage.getItem('saved_essays');
+                            if (savedEssays) {
+                              const essays: SavedEssay[] = JSON.parse(savedEssays);
+                              const essayIndex = essays.findIndex(e => e.id === currentEssayId);
+                              if (essayIndex >= 0) {
+                                essays[essayIndex].score = score;
+                                essays[essayIndex].summary = summaryData;
+                                essays[essayIndex].sectionFeedbacks = sectionFeedbacks;
+                                localStorage.setItem('saved_essays', JSON.stringify(essays));
+                              }
+                            }
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-yellow-400 text-black font-medium rounded-lg transition-colors mx-auto"
+                      >
+                        <span className="material-symbols-outlined text-base">grade</span>
+                        Chấm điểm
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Score Panel - Khi đã có score */}
+              {essayScore && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <ScorePanel score={essayScore} />
+                </div>
+              )}
+
+              {/* Summary Section - Khi đã có score */}
+              {essayScore && summary && summary.completedAt && (
+                <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+                  <h3 className="text-base sm:text-lg font-bold text-gray-200 mb-3 sm:mb-4">Tổng kết bài viết</h3>
+                  <div className="space-y-3 sm:space-y-4">
+                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                      <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
+                        <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi ngữ pháp</p>
+                        <p className="text-base sm:text-lg font-bold text-red-400">{summary.grammarErrors}</p>
+                      </div>
+                      <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
+                        <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi từ vựng</p>
+                        <p className="text-base sm:text-lg font-bold text-orange-400">{summary.vocabularyErrors}</p>
+                      </div>
+                    </div>
+
+                    {/* Chi tiết lỗi - click để expand */}
+                    {summary.allSuggestions && summary.allSuggestions.length > 0 && (
+                      <div>
+                        <p className="text-xs sm:text-sm text-gray-400 mb-2 sm:mb-3 font-medium">
+                          Chi tiết các lỗi ({summary.allSuggestions.length})
+                        </p>
+                        <ul className="space-y-2 max-h-64 sm:max-h-80 overflow-y-auto custom-scrollbar">
+                          {summary.allSuggestions.map((suggestion, i) => {
+                            const isGrammar = suggestion.reason?.toLowerCase().includes("ngữ pháp") ||
+                              suggestion.reason?.toLowerCase().includes("grammar") ||
+                              suggestion.reason?.toLowerCase().includes("cấu trúc") ||
+                              suggestion.reason?.toLowerCase().includes("động từ") ||
+                              suggestion.reason?.toLowerCase().includes("mạo từ");
+                            const isExpanded = expandedErrorIndex === i;
+                            return (
+                              <li
+                                key={i}
+                                onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
+                                className="text-xs sm:text-sm text-gray-300 p-2 sm:p-3 bg-[#1a212e] rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors"
+                              >
+                                <div className="flex items-start gap-2">
+                                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
+                                  <div className="flex-1">
+                                    {suggestion.error && (
+                                      <div className="flex items-center gap-1 flex-wrap">
+                                        <span className="line-through text-red-400">{suggestion.error}</span>
+                                        <span className="text-gray-500">→</span>
+                                        <span className="text-primary font-medium">{suggestion.fix}</span>
+                                      </div>
+                                    )}
+                                    {isExpanded && suggestion.reason && (
+                                      <p className="text-[10px] sm:text-xs text-gray-400 leading-relaxed mt-2 pt-2 border-t border-gray-700">
+                                        {suggestion.reason}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="material-symbols-outlined text-gray-500 text-sm">
+                                    {isExpanded ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Hint Section */}
           {showHint && essayData && (
@@ -1116,61 +1267,21 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             </div>
           )}
 
-          {/* Feedback Section - Desktop only (ẩn trên mobile vì đã có ở main section) */}
-          <div className="hidden lg:block">
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <h3 className="text-base sm:text-lg font-bold text-gray-200">Feedback</h3>
-              {isAnalyzing && (
-                <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs text-gray-400">
-                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                  <span className="hidden sm:inline">Analyzing...</span>
-                </div>
-              )}
+          {/* Notes Section - LUÔN HIỂN THỊ Ở CUỐI */}
+          <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 mt-auto">
+            <div className="flex items-center justify-between mb-2 sm:mb-3">
+              <h3 className="text-base sm:text-lg font-bold text-gray-200 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] sm:text-[20px]">note</span>
+                Ghi chú cá nhân
+              </h3>
             </div>
-            {feedback ? (
-              <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 space-y-4 sm:space-y-5">
-                {feedback.suggestions && feedback.suggestions.length > 0 && (
-                  <div>
-                    <p className="text-gray-400 text-xs sm:text-sm mb-2 sm:mb-3 font-medium">Suggested improvements:</p>
-                    <ul className="space-y-2 sm:space-y-3">
-                      {feedback.suggestions.map((s, i) => (
-                        <li key={i} className="flex gap-2 sm:gap-3 text-xs sm:text-sm text-gray-300">
-                          <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-gray-500 mt-1.5 sm:mt-2 flex-none"></span>
-                          <span className="leading-relaxed break-words">
-                            {s.error && (
-                              <>
-                                <span className="line-through text-red-400">{s.error}</span> →{' '}
-                                <span className="text-primary font-bold">{s.fix}</span>
-                              </>
-                            )}
-                            {s.reason && <><br className="hidden sm:block" /><span className="block sm:inline">{s.reason}</span></>}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {(!feedback.suggestions || feedback.suggestions.length === 0) && (
-                  <div className="text-center py-3 sm:py-4">
-                    <p className="text-xs sm:text-sm text-gray-400">Không có gợi ý cải thiện. Bài viết của bạn rất tốt!</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800">
-                <p className="text-gray-500 text-xs sm:text-sm text-center">
-                  {isAnalyzing ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                      <span className="hidden sm:inline">Đang phân tích...</span>
-                      <span className="sm:hidden">Đang phân tích</span>
-                    </span>
-                  ) : (
-                    "Viết để nhận feedback tự động"
-                  )}
-                </p>
-              </div>
-            )}
+            <textarea
+              value={notes}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              placeholder="Ghi chú những điểm cần nhớ, lỗi sai thường gặp, từ vựng mới..."
+              className="w-full h-32 sm:h-40 bg-[#1a212e] border border-gray-700 rounded p-3 text-xs sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary resize-none custom-scrollbar"
+            />
+            <p className="text-[10px] sm:text-xs text-gray-500 mt-2">Ghi chú sẽ được lưu tự động</p>
           </div>
 
           {/* Achievements (placeholder)

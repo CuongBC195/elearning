@@ -60,6 +60,18 @@ export interface EssaySummary {
   completedAt: number;
 }
 
+// Essay Score - điểm chấm từ feedback history
+export interface EssayScore {
+  overallBand: number; // 6.0, 6.5, 7.0...
+  targetBand: number; // Band mục tiêu user chọn
+  grammarScore: number;
+  vocabularyScore: number;
+  grammarErrors: number;
+  vocabularyErrors: number;
+  feedback: string; // Nhận xét ngắn
+  scoredAt: number; // Timestamp
+}
+
 export interface SavedEssay {
   id: string;
   title: string;
@@ -78,4 +90,5 @@ export interface SavedEssay {
   template?: string; // Optional: sample essay content
   contentType?: "full" | "outline"; // Type of content
   outlineLanguage?: "vietnamese" | "english"; // Language of the content
+  score?: EssayScore; // Điểm essay (khi hoàn thành)
 }

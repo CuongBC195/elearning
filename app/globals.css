@@ -74,3 +74,55 @@ selection {
   background-color: rgba(250, 204, 21, 0.3);
 }
 
+/* Animation Classes */
+.animate-in {
+  animation-duration: 0.5s;
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fade-in {
+  animation-name: fadeInUp;
+}
+
+.slide-in-from-bottom-4 {
+  --slide-from: 1rem;
+}
+
+.duration-500 {
+  animation-duration: 0.5s;
+}
+
+.delay-150 {
+  animation-delay: 0.15s;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(var(--slide-from, 1rem));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Score reveal animation */
+.score-reveal {
+  animation: scoreReveal 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes scoreReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

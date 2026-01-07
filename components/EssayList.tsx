@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { SavedEssay } from '@/types';
 import { CERTIFICATES, getCertificateDisplayName } from '@/constants/certificates';
+import { formatBandScore } from '@/lib/essay-scorer';
 import UserCounter from './UserCounter';
 
 interface EssayListProps {
@@ -70,6 +71,15 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {/* TODO: Uncomment when Progress page is ready
+            <Link
+              href="/progress"
+              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded bg-gray-700/50 hover:bg-gray-700 text-gray-300 text-xs sm:text-sm font-medium transition-colors flex-shrink-0"
+            >
+              <span className="material-symbols-outlined text-[16px] sm:text-[18px]">analytics</span>
+              <span className="hidden sm:inline">Tiến độ</span>
+            </Link>
+            */}
             <Link
               href="/flashcard"
               className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors flex-shrink-0"
@@ -118,9 +128,16 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
                 >
                   <div className="flex items-start justify-between mb-2 sm:mb-3 gap-2">
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base sm:text-lg font-bold text-text-light mb-1 sm:mb-2 line-clamp-2 group-hover:text-primary transition-colors">
-                        {essay.title}
-                      </h3>
+                      <div className="flex items-center gap-2 mb-1 sm:mb-2">
+                        <h3 className="text-base sm:text-lg font-bold text-text-light line-clamp-2 group-hover:text-primary transition-colors">
+                          {essay.title}
+                        </h3>
+                        {essay.score && (
+                          <span className="flex-shrink-0 px-2 py-0.5 bg-primary/20 text-primary text-xs font-bold rounded">
+                            {formatBandScore(essay.score.overallBand)}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-400 flex-wrap">
                         <span className="font-medium truncate">{getCertificateDisplayName(essay.certificateId, essay.band)}</span>
                         <span className="hidden sm:inline">•</span>
