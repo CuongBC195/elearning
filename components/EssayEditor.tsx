@@ -161,6 +161,30 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     return { grammar, vocabulary, total: grammar + vocabulary, allSuggestions };
   };
 
+  // Helper: Lấy lỗi tích lũy từ quá khứ (KHÔNG bao gồm feedback hiện tại)
+  // Dùng cho "Lỗi đã phát hiện" để tránh trùng lặp với "Feedback" hiện tại
+  const getAccumulatedErrors = (): { grammar: number; vocabulary: number; total: number; allSuggestions: AnalysisSuggestion[] } => {
+    let grammar = 0;
+    let vocabulary = 0;
+    const allSuggestions: AnalysisSuggestion[] = [];
+
+    // CHỈ đếm từ section feedbacks (phân tích quá khứ)
+    // KHÔNG bao gồm feedback hiện tại để tránh duplicate
+    Object.values(sectionFeedbacks).forEach(sf => {
+      sf.suggestions.forEach(s => {
+        allSuggestions.push(s);
+        const reason = s.reason?.toLowerCase() || "";
+        if (reason.includes("ngữ pháp") || reason.includes("grammar") || reason.includes("cấu trúc") || reason.includes("động từ") || reason.includes("mạo từ") || reason.includes("tense") || reason.includes("verb") || reason.includes("subject")) {
+          grammar++;
+        } else {
+          vocabulary++;
+        }
+      });
+    });
+
+    return { grammar, vocabulary, total: grammar + vocabulary, allSuggestions };
+  };
+
   // Save essay to localStorage (persistent storage - lưu lâu dài)
   const saveEssayToStorage = (id: string, data: EssayData, content: string, notesToSave?: string, summaryToSave?: EssaySummary, finalFeedbackToSave?: AnalysisResult, contentTyp?: "full" | "outline", outlineLang?: "vietnamese" | "english", secContents?: { [sectionId: string]: string }, secFeedbacks?: { [sectionId: string]: SectionFeedback }) => {
     const savedEssays = localStorage.getItem('saved_essays');
@@ -361,18 +385,26 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
     }
   }, [currentText, essayData, isCompleted]);
 
-  // Auto-analyze CHỈ PHẦN MỚI của toàn bộ text
+  // Auto-analyze CHỈ PHẦN MỚI của SECTION HIỆN TẠI (không phải toàn bộ text)
   useEffect(() => {
-    if (!essayData || isAnalyzing || isCompleted || !currentText.trim()) return;
+    if (!essayData || isAnalyzing || isCompleted) return;
 
-    // Lấy phần text đã analyze lần cuối
-    const lastAnalyzed = lastAnalyzedContent.current['_global'] || "";
+    // Lấy section hiện tại
+    const section = getCurrentSection();
+    if (!section) return;
+
+    // Lấy nội dung section hiện tại
+    const currentSectionText = sectionContents[section.id] || "";
+    if (!currentSectionText.trim()) return;
+
+    // Lấy phần text đã analyze lần cuối cho SECTION NÀY
+    const lastAnalyzed = lastAnalyzedContent.current[section.id] || "";
 
     // Kiểm tra xem có text mới chưa được analyze không
-    if (currentText.length <= lastAnalyzed.length) return;
+    if (currentSectionText.length <= lastAnalyzed.length) return;
 
     // Tìm phần text mới (chỉ analyze phần chưa analyze)
-    const newText = currentText.slice(lastAnalyzed.length).trim();
+    const newText = currentSectionText.slice(lastAnalyzed.length).trim();
 
     // Chỉ analyze khi có câu hoàn chỉnh mới (kết thúc bằng . ! ?)
     const newSentences = newText.match(/[^.!?]*[.!?]+/g) || [];
@@ -380,12 +412,12 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
 
     // Debounce: đợi 1.5 giây sau khi user ngừng gõ
     const timeoutId = setTimeout(() => {
-      // Chỉ analyze phần mới
-      analyzeNewContent('_global', newText, essayData.sections.map(s => s.vn).join(" "));
+      // Chỉ analyze phần mới của SECTION HIỆN TẠI, so với Vietnamese của section đó
+      analyzeNewContent(section.id, newText, section.vn);
     }, 1500);
 
     return () => clearTimeout(timeoutId);
-  }, [currentText, essayData, isAnalyzing, isCompleted]);
+  }, [sectionContents, currentSectionIndex, essayData, isAnalyzing, isCompleted]);
 
   // Analyze CHỈ PHẦN MỚI của text
   const analyzeNewContent = async (sectionId: string, newText: string, sectionVn: string) => {
@@ -405,7 +437,11 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       console.log('✓ Local cache hit - using cached feedback');
       setFeedback(cachedResult);
       setAccuracy(cachedResult.accuracy || 0);
-      lastAnalyzedContent.current[sectionId] = currentText;
+
+      // Lấy nội dung section hiện tại (không phải toàn bộ text)
+      const currentSectionContent = sectionContents[sectionId] || "";
+      lastAnalyzedContent.current[sectionId] = currentSectionContent;
+
       setSectionFeedbacks(prev => {
         const existingFeedback = prev[sectionId];
         const existingSuggestions = existingFeedback?.suggestions || [];
@@ -414,8 +450,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
           ...prev,
           [sectionId]: {
             sectionId,
-            content: currentText,
-            lastAnalyzedContent: currentText,
+            content: currentSectionContent,
+            lastAnalyzedContent: currentSectionContent,
             feedback: cachedResult,
             suggestions: [...existingSuggestions, ...newSuggestions],
             analyzedAt: Date.now()
@@ -451,8 +487,11 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
         // Save to local cache
         setLocalCache(cacheKey, data);
 
-        // Cập nhật lastAnalyzedContent với currentText hiện tại
-        lastAnalyzedContent.current[sectionId] = currentText;
+        // Lấy nội dung section hiện tại (không phải toàn bộ text)
+        const currentSectionContent = sectionContents[sectionId] || "";
+
+        // Cập nhật lastAnalyzedContent với nội dung section hiện tại
+        lastAnalyzedContent.current[sectionId] = currentSectionContent;
 
         // Lưu feedback (MERGE với feedback cũ, không thay thế)
         setSectionFeedbacks(prev => {
@@ -469,8 +508,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             ...prev,
             [sectionId]: {
               sectionId,
-              content: currentText,
-              lastAnalyzedContent: currentText,
+              content: currentSectionContent,
+              lastAnalyzedContent: currentSectionContent,
               feedback: data,
               suggestions: [...existingSuggestions, ...newSuggestions], // MERGE - giữ lại errors cũ
               analyzedAt: Date.now()
@@ -494,7 +533,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   };
 
   const handleTextChange = (value: string) => {
-    setCurrentText(value);
+    // Cập nhật nội dung của section hiện tại (sẽ trigger auto-analyze)
+    setCurrentSectionText(value);
   };
 
   const handleSubmit = async () => {
@@ -878,7 +918,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
               <div className="relative w-full h-full rounded-lg border border-primary/50 bg-[#131926] overflow-hidden focus-within:border-primary transition-colors">
                 <textarea
                   ref={textareaRef}
-                  value={currentText}
+                  value={getCurrentSectionText()}
                   onChange={(e) => handleTextChange(e.target.value)}
                   className="w-full h-full bg-transparent border-none p-3 sm:p-4 text-sm sm:text-base text-gray-200 placeholder-gray-500 focus:ring-0 resize-none font-medium custom-scrollbar"
                   placeholder="Start writing your translation here..."
@@ -1016,15 +1056,15 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                 );
               })()}
 
-              {/* Lỗi đã phát hiện - Chỉ hiển thị khi có lỗi VÀ chưa hoàn thành */}
+              {/* Lỗi đã phát hiện - CHỈ hiển thị lỗi tích lũy từ quá khứ (không bao gồm feedback hiện tại) */}
               {(() => {
-                const errorStats = getTotalErrors();
+                const errorStats = getAccumulatedErrors();
                 if (errorStats.allSuggestions.length === 0) return null;
 
                 return (
                   <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
                     <p className="text-xs text-gray-400 mb-2">
-                      Lỗi đã phát hiện ({errorStats.allSuggestions.length})
+                      Lỗi đã phát hiện (tích lũy: {errorStats.allSuggestions.length})
                     </p>
                     <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
                       {errorStats.allSuggestions.map((s, i) => {
