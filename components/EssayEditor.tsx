@@ -1254,7 +1254,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
               {essayScore ? (
                 <>
                   <ScorePanel score={essayScore} />
-                  
+
                   {/* Rescore button */}
                   {calculateProgress() >= 100 && (
                     <div className="flex justify-center">
@@ -1264,9 +1264,10 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                           const newScore = calculateScore(summaryData, band, certificateId);
                           const updatedHistory: ScoreHistoryItem[] = [...scoreHistory];
                           if (essayScore) {
+                            const oldScore = essayScore as EssayScore;
                             updatedHistory.push({
-                              score: essayScore,
-                              scoredAt: essayScore.scoredAt,
+                              score: oldScore,
+                              scoredAt: oldScore.scoredAt,
                               version: updatedHistory.length + 1
                             });
                           }
@@ -1346,17 +1347,17 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                     );
                   })()}
 
-                  
+
                   {/* Score History Section */}
                   {scoreHistory.length > 0 && (() => {
                     const allScores = [...scoreHistory.map(h => h.score.overallBand), essayScore?.overallBand || 0];
                     const bestScore = Math.max(...allScores);
-                    
+
                     const formatHistoryDate = (timestamp: number) => {
                       const date = new Date(timestamp);
                       return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) + ' ' + date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
                     };
-                    
+
                     return (
                       <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
                         <div className="flex items-center justify-between mb-3">
@@ -1416,9 +1417,10 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
                       // If there's an existing score, push it to history before setting new
                       const updatedHistory: ScoreHistoryItem[] = [...scoreHistory];
                       if (essayScore) {
+                        const oldScore = essayScore as EssayScore;
                         updatedHistory.push({
-                          score: essayScore,
-                          scoredAt: essayScore.scoredAt,
+                          score: oldScore,
+                          scoredAt: oldScore.scoredAt,
                           version: updatedHistory.length + 1
                         });
                       }
