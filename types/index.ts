@@ -72,6 +72,14 @@ export interface EssayScore {
   scoredAt: number; // Timestamp
 }
 
+// Score History - lưu lịch sử các lần chấm điểm
+export interface ScoreHistoryItem {
+  score: EssayScore;
+  scoredAt: number;
+  version: number; // Lần chấm thứ mấy
+  wordCount?: number;
+}
+
 export interface SavedEssay {
   id: string;
   title: string;
@@ -90,5 +98,6 @@ export interface SavedEssay {
   template?: string; // Optional: sample essay content
   contentType?: "full" | "outline"; // Type of content
   outlineLanguage?: "vietnamese" | "english"; // Language of the content
-  score?: EssayScore; // Điểm essay (khi hoàn thành)
+  score?: EssayScore; // Điểm essay hiện tại (mới nhất)
+  scoreHistory?: ScoreHistoryItem[]; // Lịch sử các lần chấm điểm
 }

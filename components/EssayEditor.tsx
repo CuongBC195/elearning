@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion, SectionFeedback, EssayScore } from '@/types';
+import { EssayData, AnalysisResult, Translations, GeneratedTopic, SavedEssay, EssaySummary, AnalysisSuggestion, SectionFeedback, EssayScore, ScoreHistoryItem } from '@/types';
 import { calculateScore } from '@/lib/essay-scorer';
 import ScorePanel from './ScorePanel';
 
@@ -82,6 +82,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
   const [sectionFeedbacks, setSectionFeedbacks] = useState<{ [sectionId: string]: SectionFeedback }>({}); // Feedback từng section
   const [expandedErrorIndex, setExpandedErrorIndex] = useState<number | null>(null); // Track lỗi đang expand
   const [essayScore, setEssayScore] = useState<EssayScore | null>(null); // Score khi hoàn thành
+  const [scoreHistory, setScoreHistory] = useState<ScoreHistoryItem[]>([]); // Lịch sử chấm điểm
+  const [sidebarTab, setSidebarTab] = useState<'feedback' | 'score'>('feedback'); // Tab hiện tại trong sidebar
+  const [showScorePopup, setShowScorePopup] = useState(false); // Popup thông báo chấm điểm
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastAnalyzedContent = useRef<{ [sectionId: string]: string }>({}); // Track content đã analyze cho từng section
   const isLoadingTopicRef = useRef(false); // Prevent duplicate topic loading
@@ -206,6 +209,8 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       notes: notesToSave !== undefined ? notesToSave : (essayIndex >= 0 ? essays[essayIndex].notes : ""),
       summary: summaryToSave !== undefined ? summaryToSave : (essayIndex >= 0 ? essays[essayIndex].summary : undefined),
       finalFeedback: finalFeedbackToSave !== undefined ? finalFeedbackToSave : (essayIndex >= 0 ? essays[essayIndex].finalFeedback : undefined),
+      score: essayIndex >= 0 ? essays[essayIndex].score : undefined, // Preserve score!
+      scoreHistory: essayIndex >= 0 ? essays[essayIndex].scoreHistory : undefined, // Preserve history!
       contentType: contentTyp !== undefined ? contentTyp : (essayIndex >= 0 ? essays[essayIndex].contentType : "full"),
       outlineLanguage: outlineLang !== undefined ? outlineLang : (essayIndex >= 0 ? essays[essayIndex].outlineLanguage : "vietnamese")
     };
@@ -268,6 +273,15 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             if (essay.score) {
               setEssayScore(essay.score);
               setIsCompleted(true); // Đảm bảo hiển thị score panel
+              setSidebarTab('score'); // Auto-switch to score tab
+              // Load summary if exists
+              if (essay.summary) {
+                setSummary(essay.summary);
+              }
+            }
+            // Load score history if exists
+            if (essay.scoreHistory) {
+              setScoreHistory(essay.scoreHistory);
             }
             setIsLoadingTopic(false);
             return; // Đã load xong, không cần làm gì thêm
@@ -681,6 +695,9 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
       setEssayScore(score);
       setSummary(summaryData);
 
+      // Hiển thị popup thông báo
+      setShowScorePopup(true);
+
       // Lưu vào storage ngay lập tức
       if (currentEssayId && essayData) {
         const savedEssays = localStorage.getItem('saved_essays');
@@ -1031,9 +1048,35 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
 
-          {/* ========== PHẦN CHƯA HOÀN THÀNH ========== */}
-          {/* Chỉ hiện khi chưa hoàn thành (chưa có score) */}
-          {!essayScore && (
+          {/* Tab Navigation */}
+          <div className="flex gap-2 pb-3 border-b border-gray-800">
+            <button
+              onClick={() => setSidebarTab('feedback')}
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-all rounded-lg ${sidebarTab === 'feedback'
+                ? 'bg-primary/10 text-primary border border-primary/30'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+                }`}
+            >
+              Feedback
+            </button>
+            <button
+              onClick={() => setSidebarTab('score')}
+              className={`flex-1 px-4 py-2 text-sm font-medium transition-all rounded-lg relative ${sidebarTab === 'score'
+                ? 'bg-primary/10 text-primary border border-primary/30'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+                }`}
+            >
+              Điểm số
+              {essayScore && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              )}
+            </button>
+          </div>
+
+
+          {/* ========== TAB FEEDBACK: Hiển thị lỗi + feedback ========== */}
+          {/* LUÔN hiển thị trong tab feedback, kể cả sau khi chấm điểm */}
+          {sidebarTab === 'feedback' && (
             <>
               {/* Accuracy & Total Errors */}
               {(() => {
@@ -1167,128 +1210,7 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             </>
           )}
 
-          {/* ========== PHẦN ĐÃ HOÀN THÀNH ========== */}
-          {/* Chỉ hiện khi progress >= 100% VÀ AI done */}
-          {calculateProgress() >= 100 && !isAnalyzing && (
-            <>
-              {/* Manual Score Button - Khi chưa có score */}
-              {!essayScore && (() => {
-                const hasSectionFeedback = Object.values(sectionFeedbacks).some(sf => sf.feedback !== null || sf.suggestions.length > 0);
-                const hasGlobalFeedback = feedback !== null;
-                const hasAnyFeedback = hasSectionFeedback || hasGlobalFeedback;
 
-                if (!hasAnyFeedback) return null;
-
-                return (
-                  <div className="bg-card-dark rounded-xl border border-gray-700/50 p-4">
-                    <div className="text-center">
-                      <p className="text-sm text-gray-400 mb-3">Bài viết đã hoàn thành!</p>
-                      <button
-                        onClick={() => {
-                          const summaryData = createSummaryFromSections();
-                          const score = calculateScore(summaryData, band, certificateId);
-                          setEssayScore(score);
-                          setSummary(summaryData);
-                          setIsCompleted(true);
-                          // Save to storage
-                          if (currentEssayId && essayData) {
-                            const savedEssays = localStorage.getItem('saved_essays');
-                            if (savedEssays) {
-                              const essays: SavedEssay[] = JSON.parse(savedEssays);
-                              const essayIndex = essays.findIndex(e => e.id === currentEssayId);
-                              if (essayIndex >= 0) {
-                                essays[essayIndex].score = score;
-                                essays[essayIndex].summary = summaryData;
-                                essays[essayIndex].sectionFeedbacks = sectionFeedbacks;
-                                localStorage.setItem('saved_essays', JSON.stringify(essays));
-                              }
-                            }
-                          }
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-yellow-400 text-black font-medium rounded-lg transition-colors mx-auto"
-                      >
-                        <span className="material-symbols-outlined text-base">grade</span>
-                        Chấm điểm
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Score Panel - Khi đã có score */}
-              {essayScore && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <ScorePanel score={essayScore} />
-                </div>
-              )}
-
-              {/* Summary Section - Khi đã có score */}
-              {essayScore && summary && summary.completedAt && (
-                <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
-                  <h3 className="text-base sm:text-lg font-bold text-gray-200 mb-3 sm:mb-4">Tổng kết bài viết</h3>
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                      <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
-                        <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi ngữ pháp</p>
-                        <p className="text-base sm:text-lg font-bold text-red-400">{summary.grammarErrors}</p>
-                      </div>
-                      <div className="bg-[#1a212e] rounded p-2 sm:p-3 border border-gray-700">
-                        <p className="text-[10px] sm:text-xs text-gray-400 mb-1">Lỗi từ vựng</p>
-                        <p className="text-base sm:text-lg font-bold text-orange-400">{summary.vocabularyErrors}</p>
-                      </div>
-                    </div>
-
-                    {/* Chi tiết lỗi - click để expand */}
-                    {summary.allSuggestions && summary.allSuggestions.length > 0 && (
-                      <div>
-                        <p className="text-xs sm:text-sm text-gray-400 mb-2 sm:mb-3 font-medium">
-                          Chi tiết các lỗi ({summary.allSuggestions.length})
-                        </p>
-                        <ul className="space-y-2 max-h-64 sm:max-h-80 overflow-y-auto custom-scrollbar">
-                          {summary.allSuggestions.map((suggestion, i) => {
-                            const isGrammar = suggestion.reason?.toLowerCase().includes("ngữ pháp") ||
-                              suggestion.reason?.toLowerCase().includes("grammar") ||
-                              suggestion.reason?.toLowerCase().includes("cấu trúc") ||
-                              suggestion.reason?.toLowerCase().includes("động từ") ||
-                              suggestion.reason?.toLowerCase().includes("mạo từ");
-                            const isExpanded = expandedErrorIndex === i;
-                            return (
-                              <li
-                                key={i}
-                                onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
-                                className="text-xs sm:text-sm text-gray-300 p-2 sm:p-3 bg-[#1a212e] rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors"
-                              >
-                                <div className="flex items-start gap-2">
-                                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
-                                  <div className="flex-1">
-                                    {suggestion.error && (
-                                      <div className="flex items-center gap-1 flex-wrap">
-                                        <span className="line-through text-red-400">{suggestion.error}</span>
-                                        <span className="text-gray-500">→</span>
-                                        <span className="text-primary font-medium">{suggestion.fix}</span>
-                                      </div>
-                                    )}
-                                    {isExpanded && suggestion.reason && (
-                                      <p className="text-[10px] sm:text-xs text-gray-400 leading-relaxed mt-2 pt-2 border-t border-gray-700">
-                                        {suggestion.reason}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <span className="material-symbols-outlined text-gray-500 text-sm">
-                                    {isExpanded ? 'expand_less' : 'expand_more'}
-                                  </span>
-                                </div>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
 
           {/* Hint Section */}
           {showHint && essayData && (
@@ -1307,22 +1229,256 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             </div>
           )}
 
-          {/* Notes Section - LUÔN HIỂN THỊ Ở CUỐI */}
-          <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 mt-auto">
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <h3 className="text-base sm:text-lg font-bold text-gray-200 flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px] sm:text-[20px]">note</span>
-                Ghi chú cá nhân
-              </h3>
+          {/* Notes Section - Chỉ hiển thị trong tab feedback */}
+          {sidebarTab === 'feedback' && (
+            <div className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 mt-auto">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h3 className="text-base sm:text-lg font-bold text-gray-200 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px] sm:text-[20px]">note</span>
+                  Ghi chú cá nhân
+                </h3>
+              </div>
+              <textarea
+                value={notes}
+                onChange={(e) => handleNotesChange(e.target.value)}
+                placeholder="Ghi chú những điểm cần nhớ, lỗi sai thường gặp, từ vựng mới..."
+                className="w-full h-32 sm:h-40 bg-[#1a212e] border border-gray-700 rounded p-3 text-xs sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary resize-none custom-scrollbar"
+              />
+              <p className="text-[10px] sm:text-xs text-gray-500 mt-2">Ghi chú sẽ được lưu tự động</p>
             </div>
-            <textarea
-              value={notes}
-              onChange={(e) => handleNotesChange(e.target.value)}
-              placeholder="Ghi chú những điểm cần nhớ, lỗi sai thường gặp, từ vựng mới..."
-              className="w-full h-32 sm:h-40 bg-[#1a212e] border border-gray-700 rounded p-3 text-xs sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary resize-none custom-scrollbar"
-            />
-            <p className="text-[10px] sm:text-xs text-gray-500 mt-2">Ghi chú sẽ được lưu tự động</p>
-          </div>
+          )}
+
+          {/* ========== TAB: ĐIỂM SỐ ========== */}
+          {sidebarTab === 'score' && (
+            <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+              {essayScore ? (
+                <>
+                  <ScorePanel score={essayScore} />
+                  
+                  {/* Rescore button */}
+                  {calculateProgress() >= 100 && (
+                    <div className="flex justify-center">
+                      <button
+                        onClick={() => {
+                          const summaryData = createSummaryFromSections();
+                          const newScore = calculateScore(summaryData, band, certificateId);
+                          const updatedHistory: ScoreHistoryItem[] = [...scoreHistory];
+                          if (essayScore) {
+                            updatedHistory.push({
+                              score: essayScore,
+                              scoredAt: essayScore.scoredAt,
+                              version: updatedHistory.length + 1
+                            });
+                          }
+                          setScoreHistory(updatedHistory);
+                          setEssayScore(newScore);
+                          setSummary(summaryData);
+                          if (currentEssayId && essayData) {
+                            const savedEssays = localStorage.getItem('saved_essays');
+                            if (savedEssays) {
+                              const essays: SavedEssay[] = JSON.parse(savedEssays);
+                              const idx = essays.findIndex(e => e.id === currentEssayId);
+                              if (idx >= 0) {
+                                essays[idx].score = newScore;
+                                essays[idx].scoreHistory = updatedHistory;
+                                essays[idx].summary = summaryData;
+                                essays[idx].sectionFeedbacks = sectionFeedbacks;
+                                localStorage.setItem('saved_essays', JSON.stringify(essays));
+                              }
+                            }
+                          }
+                        }}
+                        disabled={isAnalyzing}
+                        className="px-4 py-2 rounded-lg font-medium text-sm transition-all inline-flex items-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30"
+                      >
+                        <span className="material-symbols-outlined text-base">refresh</span>
+                        Chấm điểm lại
+                      </button>
+                    </div>
+                  )}
+
+
+                  {/* Reuse accumulated errors section below score */}
+                  {(() => {
+                    const errorStats = getAccumulatedErrors();
+                    if (errorStats.allSuggestions.length === 0) return null;
+
+                    return (
+                      <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
+                        <p className="text-xs text-gray-400 mb-2 flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-red-400 text-sm">error</span>
+                          Lỗi đã phát hiện (tích lũy: {errorStats.allSuggestions.length})
+                        </p>
+                        <ul className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                          {errorStats.allSuggestions.map((s, i) => {
+                            const isExpanded = expandedErrorIndex === i;
+                            const isGrammar = s.reason?.toLowerCase().includes("ngữ pháp") ||
+                              s.reason?.toLowerCase().includes("grammar");
+                            return (
+                              <li
+                                key={i}
+                                onClick={() => setExpandedErrorIndex(isExpanded ? null : i)}
+                                className="p-2 bg-[#1a212e] rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors"
+                              >
+                                <div className="flex items-start gap-2">
+                                  <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-none ${isGrammar ? 'bg-red-400' : 'bg-orange-400'}`}></span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1 flex-wrap text-xs text-gray-300">
+                                      <span className="line-through text-red-400 truncate">{s.error}</span>
+                                      <span className="text-gray-500">→</span>
+                                      <span className="text-primary font-medium truncate">{s.fix}</span>
+                                    </div>
+                                    {isExpanded && s.reason && (
+                                      <div className="mt-2 pt-2 border-t border-gray-700">
+                                        <p className="text-[11px] text-gray-400 leading-relaxed">{s.reason}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className="material-symbols-outlined text-gray-500 text-sm flex-shrink-0">
+                                    {isExpanded ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })()}
+
+                  
+                  {/* Score History Section */}
+                  {scoreHistory.length > 0 && (() => {
+                    const allScores = [...scoreHistory.map(h => h.score.overallBand), essayScore?.overallBand || 0];
+                    const bestScore = Math.max(...allScores);
+                    
+                    const formatHistoryDate = (timestamp: number) => {
+                      const date = new Date(timestamp);
+                      return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) + ' ' + date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    };
+                    
+                    return (
+                      <div className="bg-[#131823] rounded-lg p-3 border border-gray-800">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-primary/70 text-sm">history</span>
+                            Lịch sử chấm điểm
+                          </p>
+                          <span className="text-[10px] text-gray-500">{scoreHistory.length + 1} lần</span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className={`flex items-center justify-between p-2 rounded-lg ${essayScore?.overallBand === bestScore ? 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-[#1a212e] border border-gray-700'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-primary">{essayScore?.overallBand.toFixed(1)}</span>
+                              <span className="text-[10px] text-gray-400">Hiện tại</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {essayScore?.overallBand === bestScore && <span className="text-[10px]">🏆</span>}
+                              <span className="text-[10px] text-gray-500">{essayScore ? formatHistoryDate(essayScore.scoredAt) : ''}</span>
+                            </div>
+                          </div>
+                          {scoreHistory.slice().reverse().map((item, idx) => (
+                            <div key={idx} className={`flex items-center justify-between p-2 rounded-lg ${item.score.overallBand === bestScore ? 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-[#1a212e] border border-gray-700/50'}`}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-300">{item.score.overallBand.toFixed(1)}</span>
+                                <span className="text-[10px] text-gray-500">Lần {item.version}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {item.score.overallBand === bestScore && <span className="text-[10px]">🏆</span>}
+                                <span className="text-[10px] text-gray-500">{formatHistoryDate(item.scoredAt)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 pt-2 border-t border-gray-800 flex items-center justify-between text-[10px]">
+                          <span className="text-gray-500">Cao nhất: <span className="text-primary">{bestScore.toFixed(1)}</span></span>
+                          <span className="text-gray-500">Tiến bộ: <span className={essayScore && scoreHistory[0] ? (essayScore.overallBand >= scoreHistory[0].score.overallBand ? 'text-green-400' : 'text-red-400') : 'text-gray-400'}>{essayScore && scoreHistory[0] ? (essayScore.overallBand >= scoreHistory[0].score.overallBand ? '+' : '') + (essayScore.overallBand - scoreHistory[0].score.overallBand).toFixed(1) : '-'}</span></span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : calculateProgress() >= 100 ? (
+                // Manual scoring when progress = 100% but no auto-score yet
+                <div className="text-center py-8 px-6 max-w-md">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-5xl text-primary">grade</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-200 mb-2">Bài viết đã hoàn thành!</h3>
+                  <p className="text-sm text-gray-400 mb-6">
+                    Đợi AI phân tích xong, sau đó nhấn nút bên dưới để xem điểm số.
+                  </p>
+                  <button
+                    onClick={() => {
+                      const summaryData = createSummaryFromSections();
+                      const newScore = calculateScore(summaryData, band, certificateId);
+
+                      // If there's an existing score, push it to history before setting new
+                      const updatedHistory: ScoreHistoryItem[] = [...scoreHistory];
+                      if (essayScore) {
+                        updatedHistory.push({
+                          score: essayScore,
+                          scoredAt: essayScore.scoredAt,
+                          version: updatedHistory.length + 1
+                        });
+                      }
+
+                      setScoreHistory(updatedHistory);
+                      setEssayScore(newScore);
+                      setSummary(summaryData);
+                      setIsCompleted(true);
+
+                      // Save immediately with history
+                      if (currentEssayId && essayData) {
+                        const savedEssays = localStorage.getItem('saved_essays');
+                        if (savedEssays) {
+                          const essays: SavedEssay[] = JSON.parse(savedEssays);
+                          const essayIndex = essays.findIndex(e => e.id === currentEssayId);
+                          if (essayIndex >= 0) {
+                            essays[essayIndex].score = newScore;
+                            essays[essayIndex].scoreHistory = updatedHistory;
+                            essays[essayIndex].summary = summaryData;
+                            essays[essayIndex].sectionFeedbacks = sectionFeedbacks;
+                            localStorage.setItem('saved_essays', JSON.stringify(essays));
+                          }
+                        }
+                      }
+                    }}
+                    disabled={isAnalyzing}
+                    className={`px-6 py-3 rounded-lg font-bold transition-all inline-flex items-center gap-2 ${isAnalyzing
+                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                      : 'bg-primary hover:bg-yellow-400 text-black'
+                      }`}
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-gray-400/30 border-t-gray-400 rounded-full animate-spin"></div>
+                        <span>Đang phân tích...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined">calculate</span>
+                        <span>Chấm điểm ngay</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-gray-500 text-xs mt-4">
+                    {isAnalyzing ? 'Vui lòng đợi AI phân tích xong' : 'Nhấn khi đã xem hết feedback'}
+                  </p>
+                </div>
+              ) : (
+                // Lock state when progress < 100%
+                <div className="text-center py-12 px-4">
+                  <span className="material-symbols-outlined text-6xl text-gray-700 mb-4 block">lock</span>
+                  <p className="text-gray-400 text-sm">Hoàn thành bài viết để xem điểm số</p>
+                  <p className="text-gray-500 text-xs mt-2">Progress: {calculateProgress()}%</p>
+                </div>
+              )}
+            </div>
+          )}
+
+
+
 
           {/* Achievements (placeholder)
           <div className="mt-auto">
@@ -1339,6 +1495,42 @@ export default function EssayEditor({ certificateId, band, target, essayId, cont
             </div>
           </div> */}
         </aside>
+
+        {/* Score Ready Popup */}
+        {showScorePopup && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+            <div className="bg-card-dark rounded-2xl p-6 max-w-sm w-full border border-primary/30 shadow-2xl">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center animate-bounce-gentle">
+                  <span className="material-symbols-outlined text-4xl text-primary">grade</span>
+                </div>
+                <h3 className="text-xl font-bold text-gray-100 mb-2">
+                  Bài viết hoàn thành! 🎉
+                </h3>
+                <p className="text-gray-400 mb-6 text-sm">
+                  Điểm số của bạn đã sẵn sàng. Nhấn để xem kết quả!
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowScorePopup(false)}
+                    className="flex-1 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    Để sau
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowScorePopup(false);
+                      setSidebarTab('score');
+                    }}
+                    className="flex-1 px-4 py-2.5 bg-primary hover:bg-yellow-400 text-black font-bold rounded-lg transition-colors text-sm"
+                  >
+                    Xem điểm số →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </>
   );

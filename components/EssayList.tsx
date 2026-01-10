@@ -7,12 +7,7 @@ import { CERTIFICATES, getCertificateDisplayName } from '@/constants/certificate
 import { formatBandScore } from '@/lib/essay-scorer';
 import UserCounter from './UserCounter';
 
-interface EssayListProps {
-  onSelectEssay: (essay: SavedEssay) => void;
-  onNewEssay: () => void;
-}
-
-export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps) {
+export default function EssayList() {
   const [essays, setEssays] = useState<SavedEssay[]>([]);
 
   useEffect(() => {
@@ -87,14 +82,14 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
               <span className="material-symbols-outlined text-[16px] sm:text-[18px]">style</span>
               <span className="hidden sm:inline">Flashcard</span>
             </Link>
-            <button
-              onClick={onNewEssay}
+            <Link
+              href="/essay/new"
               className="flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded bg-primary hover:bg-yellow-400 text-black text-xs sm:text-sm font-bold transition-colors flex-shrink-0"
             >
               <span className="material-symbols-outlined text-[16px] sm:text-[18px]">add</span>
               <span className="hidden sm:inline">New Essay</span>
               <span className="sm:hidden">New</span>
-            </button>
+            </Link>
           </div>
         </div>
       </header>
@@ -111,48 +106,50 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
               </div>
               <p className="text-gray-400 text-base sm:text-lg mb-2">Chưa có bài làm nào</p>
               <p className="text-gray-500 text-xs sm:text-sm mb-4 sm:mb-6 px-4">Tạo bài làm mới để bắt đầu luyện tập</p>
-              <button
-                onClick={onNewEssay}
-                className="px-5 sm:px-6 py-2.5 sm:py-3 rounded bg-primary hover:bg-yellow-400 text-black text-sm sm:text-base font-bold transition-colors"
+              <Link
+                href="/essay/new"
+                className="px-5 sm:px-6 py-2.5 sm:py-3 rounded bg-primary hover:bg-yellow-400 text-black text-sm sm:text-base font-bold transition-colors inline-block"
               >
                 Tạo bài làm mới
-              </button>
+              </Link>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               {essays.map((essay) => (
-                <div
+                <Link
                   key={essay.id}
-                  onClick={() => onSelectEssay(essay)}
-                  className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 hover:border-gray-700 cursor-pointer transition-colors group"
+                  href={`/essay/${essay.id}`}
+                  className="bg-[#131823] rounded-lg p-4 sm:p-5 border border-gray-800 hover:border-gray-700 cursor-pointer transition-colors group block"
                 >
-                  <div className="flex items-start justify-between mb-2 sm:mb-3 gap-2">
+                  <div className="flex items-start justify-between mb-2 sm:mb-3 gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 sm:mb-2">
-                        <h3 className="text-base sm:text-lg font-bold text-text-light line-clamp-2 group-hover:text-primary transition-colors">
-                          {essay.title}
-                        </h3>
-                        {essay.score && (
-                          <span className="flex-shrink-0 px-2 py-0.5 bg-primary/20 text-primary text-xs font-bold rounded">
-                            {formatBandScore(essay.score.overallBand)}
-                          </span>
-                        )}
-                      </div>
+                      <h3 className="text-base sm:text-lg font-bold text-text-light line-clamp-2 group-hover:text-primary transition-colors mb-1 sm:mb-2">
+                        {essay.title}
+                      </h3>
                       <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-400 flex-wrap">
                         <span className="font-medium truncate">{getCertificateDisplayName(essay.certificateId, essay.band)}</span>
                         <span className="hidden sm:inline">•</span>
                         <span>{formatDate(essay.updatedAt)}</span>
                       </div>
                     </div>
-                    <button
-                      onClick={(e) => deleteEssay(essay.id, e)}
-                      className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 sm:p-2 hover:bg-gray-800 rounded transition-all flex-shrink-0"
-                      title="Delete essay"
-                    >
-                      <span className="material-symbols-outlined text-gray-400 hover:text-red-400 text-[18px] sm:text-[20px]">
-                        delete
-                      </span>
-                    </button>
+
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {essay.score && (
+                        <div className="flex flex-col items-center gap-1 px-3 py-2 bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/30 rounded-lg">
+                          <span className="text-[10px] uppercase tracking-wider text-primary/80 font-semibold">Score</span>
+                          <span className="text-lg sm:text-xl font-bold text-primary">{formatBandScore(essay.score.overallBand)}</span>
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => deleteEssay(essay.id, e)}
+                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 sm:p-2 hover:bg-gray-800 rounded transition-all flex-shrink-0"
+                        title="Delete essay"
+                      >
+                        <span className="material-symbols-outlined text-gray-400 hover:text-red-400 text-[18px] sm:text-[20px]">
+                          delete
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-800">
@@ -162,7 +159,7 @@ export default function EssayList({ onSelectEssay, onNewEssay }: EssayListProps)
                       <span className="text-primary font-medium sm:hidden">Tiếp tục →</span>
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
